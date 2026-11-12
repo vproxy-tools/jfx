@@ -35,13 +35,6 @@ public final class GodotBridge {
 
     /** Coherent main-thread snapshot: size, DPI, position, monitor rect, focus, mode, ack. */
     public static native int[] hostInfo();
-    /**
-     * Whether this host binary includes the optional RD-direct backend.
-     * This reports build capability, not the selected backend: a compiled
-     * host can still use Viewport rendering, including on OpenGL.
-     * The same JavaFX SDK works with either host build.
-     */
-    public static native boolean isRDDirectCompiled();
     public static native int[] screenInfo();
 
     /** Queues a low-frequency window operation; returns its acknowledgement sequence. */
@@ -91,10 +84,7 @@ public final class GodotBridge {
      */
     public static native double[] pollWindowInputV2();
 
-    /** Immediate Unicode text transfer; null clears the Windows clipboard. */
-    public static native void clipboardWriteText(String text);
     public static native String clipboardReadText();
-    public static native boolean clipboardHasText();
 
     /** Hands the active in-app drag to Windows OLE for cross-application transfer.
      * Effects/buttons use Glass action and (1 << buttonIndex) masks; sourceId is the
