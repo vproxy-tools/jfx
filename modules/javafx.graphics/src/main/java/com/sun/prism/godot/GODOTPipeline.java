@@ -14,12 +14,14 @@ public final class GODOTPipeline extends GraphicsPipeline {
     public static GODOTPipeline getInstance() { return INSTANCE; }
     private GODOTPipeline() {}
     @Override public boolean init() {
+        javafx.application.GodotRuntime.PRISM_GODOT_ENABLED = false;
         try {
             if (GodotBridge.hostInfo().length < 16) return false;
             if (com.sun.prism.impl.PrismSettings.verbose) {
                 System.out.println("Prism-Godot RD-direct compiled: " + GodotBridge.isRDDirectCompiled());
             }
             GodotBridge.registerRenderThread(Thread.currentThread());
+            javafx.application.GodotRuntime.PRISM_GODOT_ENABLED = true;
             return true;
         }
         catch (UnsatisfiedLinkError unavailable) { return false; }
@@ -38,6 +40,7 @@ public final class GODOTPipeline extends GraphicsPipeline {
     @Override public boolean supportsShaderType(ShaderType type) { return type == ShaderType.GLSL; }
     @Override public boolean supportsShaderModel(ShaderModel model) { return model == ShaderModel.SM3; }
     @Override public void dispose() {
+        javafx.application.GodotRuntime.PRISM_GODOT_ENABLED = false;
         if (factory != null) { factory.dispose(); factory = null; }
         super.dispose();
     }
