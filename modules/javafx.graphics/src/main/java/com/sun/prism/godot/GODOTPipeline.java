@@ -16,6 +16,9 @@ public final class GODOTPipeline extends GraphicsPipeline {
     @Override public boolean init() {
         try {
             if (GodotBridge.hostInfo().length < 16) return false;
+            if (com.sun.prism.impl.PrismSettings.verbose) {
+                System.out.println("Prism-Godot RD-direct compiled: " + GodotBridge.isRDDirectCompiled());
+            }
             GodotBridge.registerRenderThread(Thread.currentThread());
             return true;
         }
