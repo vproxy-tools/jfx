@@ -2,6 +2,9 @@
 package com.sun.scenario.effect;
 
 import com.sun.javafx.geom.Rectangle;
+import com.sun.javafx.geom.RectBounds;
+import com.sun.javafx.geom.DirtyRegionContainer;
+import com.sun.javafx.geom.DirtyRegionPool;
 import com.sun.javafx.geom.transform.BaseTransform;
 import com.sun.prism.godot.GodotResourceFactory;
 import com.sun.prism.godot.GodotShader;
@@ -21,7 +24,17 @@ public final class GodotShaderEffect extends FilterEffect<RenderState> {
     public void setInput(Effect input) { setInput(0,input); }
     public void setParameters(Map<String,GodotShader.Constant> parameters) { this.parameters = Map.copyOf(parameters); }
     @Override public RenderState getRenderState(FilterContext context, BaseTransform transform, Rectangle clip, Object helper, Effect defaultInput) {
-        return RenderState.UserSpaceRenderState;
+        // Arbitrary shaders may sample anywhere in the input. Cropping it to
+        // the output clip also changes the node-local UV coordinate system.
+        return RenderState.UnclippedUserSpaceRenderState;
+    }
+    @Override public DirtyRegionContainer getDirtyRegions(Effect defaultInput, DirtyRegionPool regionPool) {
+        // There is no general inverse mapping from changed input pixels to
+        // shader output pixels. Repaint this effect's full bounds, as for
+        // DisplacementMap, without disabling dirty-region optimization globally.
+        DirtyRegionContainer regions = regionPool.checkOut();
+        regions.deriveWithNewRegion((RectBounds) getBounds(BaseTransform.IDENTITY_TRANSFORM, defaultInput));
+        return regions;
     }
     @Override public boolean reducesOpaquePixels() { return true; }
     @Override public AccelType getAccelType(FilterContext context) { return AccelType.GODOT; }
