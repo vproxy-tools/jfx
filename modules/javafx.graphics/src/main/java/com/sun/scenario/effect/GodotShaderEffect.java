@@ -26,7 +26,25 @@ public final class GodotShaderEffect extends FilterEffect<RenderState> {
     @Override public RenderState getRenderState(FilterContext context, BaseTransform transform, Rectangle clip, Object helper, Effect defaultInput) {
         // Arbitrary shaders may sample anywhere in the input. Cropping it to
         // the output clip also changes the node-local UV coordinate system.
-        return RenderState.UnclippedUserSpaceRenderState;
+        // Keep node-local axes while retaining device-scale detail in the input.
+        double scaleX = Math.max(1.0, Math.hypot(transform.getMxx(), transform.getMyx()));
+        double scaleY = Math.max(1.0, Math.hypot(transform.getMxy(), transform.getMyy()));
+        BaseTransform inputTransform = BaseTransform.getScaleInstance(scaleX, scaleY);
+        BaseTransform resultTransform = transform.copy().deriveWithScale(1.0 / scaleX, 1.0 / scaleY, 1.0);
+        return new RenderState() {
+            @Override public EffectCoordinateSpace getEffectTransformSpace() {
+                return EffectCoordinateSpace.CustomSpace;
+            }
+            @Override public BaseTransform getInputTransform(BaseTransform filterTransform) {
+                return inputTransform;
+            }
+            @Override public BaseTransform getResultTransform(BaseTransform filterTransform) {
+                return resultTransform;
+            }
+            @Override public Rectangle getInputClip(int i, Rectangle filterClip) {
+                return null;
+            }
+        };
     }
     @Override public DirtyRegionContainer getDirtyRegions(Effect defaultInput, DirtyRegionPool regionPool) {
         // There is no general inverse mapping from changed input pixels to
