@@ -117,6 +117,8 @@ public abstract class SLBackend extends TreeScanner {
 
     protected abstract String getFuncName(String f);
 
+    protected String getDeclarationName(String name) { return name; }
+
     @Override
     public void visitArrayAccessExpr(ArrayAccessExpr e) {
         scan(e.getExpr());
@@ -281,7 +283,7 @@ public abstract class SLBackend extends TreeScanner {
             } else {
                 output(", ");
             }
-            output(getType(param.getType()) + " " + param.getName());
+            output(getType(param.getType()) + " " + getDeclarationName(param.getName()));
         }
         output(") ");
         scan(d.getStmt());
@@ -348,7 +350,7 @@ public abstract class SLBackend extends TreeScanner {
                 output(precisionStr + " ");
             }
         }
-        output(getType(var.getType()) + " " + var.getName());
+        output(getType(var.getType()) + " " + getDeclarationName(var.getName()));
         if (var.isArray()) {
             output("[" + var.getArraySize() + "]");
         }

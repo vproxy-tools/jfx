@@ -35,6 +35,14 @@ import com.sun.glass.ui.delegate.MenuItemDelegate;
 
 public final class WinPlatformFactory extends PlatformFactory {
 
+    /** Reuse OS input synthesis without starting a Windows Glass event loop.
+     * The caller must supply its own screen-coordinate/capture implementation.
+     */
+    public static com.sun.glass.ui.GlassRobot createInputRobot() {
+        com.sun.glass.utils.NativeLibLoader.loadLibrary("glass");
+        return new WinRobot();
+    }
+
     @Override public WinApplication createApplication() {
         return new WinApplication();
     }

@@ -382,7 +382,12 @@ public final class QuantumToolkit extends Toolkit {
             Application.invokeAndWait(this.userRunnable);
             this.userRunnable = null;
 
-            if (getPrimaryTimer().isFullspeed()) {
+            if ("Godot".equals(System.getProperty("glass.platform")) && !"0".equals(System.getenv("GODOT_JFX_FRAME_PULSE"))) {
+                // Glass-Godot coalesces an explicit host-frame clock, distinct
+                // from queue-capacity wakeups. Do not filter that clock again
+                // with a millisecond timer and lose frames through phase drift.
+                pulseTimer.start();
+            } else if (getPrimaryTimer().isFullspeed()) {
                 /*
                  * FULLSPEED_INTVERVAL workaround
                  *
@@ -705,6 +710,19 @@ public final class QuantumToolkit extends Toolkit {
         }
         eventLoopMap.clear();
         eventLoopMap = null;
+    }
+
+    @Override public javafx.geometry.Rectangle2D getPopupBounds(javafx.geometry.Rectangle2D screenBounds) {
+        int[] bounds = Application.GetApplication().getPopupBounds();
+        if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) return screenBounds;
+        return new javafx.geometry.Rectangle2D(bounds[0],bounds[1],bounds[2],bounds[3]);
+    }
+
+    @Override public void addPopupBoundsListener(Runnable listener) {
+        Application.GetApplication().addPopupBoundsListener(listener);
+    }
+    @Override public void removePopupBoundsListener(Runnable listener) {
+        Application.GetApplication().removePopupBoundsListener(listener);
     }
 
     @Override public TKStage createTKPopupStage(Window peerWindow, StageStyle popupStyle, TKStage owner) {

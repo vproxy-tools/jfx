@@ -1,0 +1,98 @@
+/* SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0 */
+package com.sun.glass.ui.godot;
+
+import com.sun.glass.ui.Application;
+import com.sun.glass.ui.GlassRobot;
+import com.sun.glass.ui.Screen;
+import com.sun.glass.ui.win.WinPlatformFactory;
+import com.sun.javafx.tk.godot.GodotBridge;
+import javafx.scene.image.WritableImage;
+import javafx.scene.image.PixelFormat;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseButton;
+import javafx.scene.paint.Color;
+
+/** Windows desktop Robot using the host's logical/physical monitor mapping. */
+final class GodotRobot extends GlassRobot {
+    private final GlassRobot input = WinPlatformFactory.createInputRobot();
+    private static final int MAX_PIXELS = 16 * 1024 * 1024;
+    @Override public void create() { Application.checkEventThread(); input.create(); }
+    @Override public void destroy() { Application.checkEventThread(); input.destroy(); }
+    @Override public void keyPress(KeyCode code) { input.keyPress(code); }
+    @Override public void keyRelease(KeyCode code) { input.keyRelease(code); }
+    @Override public void mousePress(MouseButton... buttons) { input.mousePress(buttons); }
+    @Override public void mouseRelease(MouseButton... buttons) { input.mouseRelease(buttons); }
+    @Override public void mouseWheel(int amount) { input.mouseWheel(amount); }
+
+    private static void finite(double... values) {
+        for (double value : values) if (!Double.isFinite(value) || Math.abs(value) > Integer.MAX_VALUE / 4.0)
+            throw new IllegalArgumentException("Invalid Robot coordinates");
+    }
+    private static Screen screen(double x, double y, boolean physical) {
+        Screen nearest = Screen.getMainScreen();
+        double distance = Double.POSITIVE_INFINITY;
+        for (Screen s : Screen.getScreens()) {
+            double left = physical ? s.getPlatformX() : s.getX(), top = physical ? s.getPlatformY() : s.getY();
+            double width = physical ? s.getPlatformWidth() : s.getWidth(), height = physical ? s.getPlatformHeight() : s.getHeight();
+            double dx = Math.max(Math.max(left-x, 0), x-(left+width)), dy = Math.max(Math.max(top-y, 0), y-(top+height));
+            if (x >= left && x < left+width && y >= top && y < top+height) return s;
+            if (dx*dx+dy*dy < distance) { distance = dx*dx+dy*dy; nearest = s; }
+        }
+        return nearest;
+    }
+    @Override public void mouseMove(double x, double y) {
+        Application.checkEventThread(); finite(x,y);
+        Screen s = screen(x,y,false);
+        GodotBridge.robotMove(s.toPlatformX((float)x),s.toPlatformY((float)y));
+    }
+    private double[] position() {
+        Application.checkEventThread();
+        int[] p = GodotBridge.robotPosition(); Screen s = screen(p[0],p[1],true);
+        return new double[]{s.fromPlatformX(p[0]),s.fromPlatformY(p[1])};
+    }
+    @Override public double getMouseX() { return position()[0]; }
+    @Override public double getMouseY() { return position()[1]; }
+    @Override public Color getPixelColor(double x, double y) {
+        Application.checkEventThread(); finite(x,y);
+        Screen s = screen(x,y,false);
+        return convertFromIntArgb(GodotBridge.robotCapture(s.toPlatformX((float)x),s.toPlatformY((float)y),1,1)[0]);
+    }
+    @Override public void getScreenCapture(int x, int y, int width, int height, int[] data, boolean scaleToFit) {
+        Application.checkEventThread();
+        int[] pixels = GodotBridge.robotCapture(x,y,width,height);
+        if (data.length < pixels.length) throw new IllegalArgumentException("Capture destination too small");
+        System.arraycopy(pixels,0,data,0,pixels.length);
+    }
+    @Override public WritableImage getScreenCapture(WritableImage image, double x, double y, double width, double height, boolean scaleToFit) {
+        Application.checkEventThread(); finite(x,y,width,height,x+width,y+height);
+        if (width < 1 || height < 1) throw new IllegalArgumentException("Capture dimensions must be positive");
+        Screen origin = screen(x,y,false);
+        double scaleX = scaleToFit ? 1 : origin.getPlatformScaleX(), scaleY = scaleToFit ? 1 : origin.getPlatformScaleY();
+        double dw = Math.ceil(width*scaleX), dh = Math.ceil(height*scaleY);
+        if (dw*dh > MAX_PIXELS) throw new IllegalArgumentException("Robot capture exceeds 16 million pixels");
+        int w = (int)dw, h = (int)dh;
+        int[] result = new int[w*h];
+        // Each monitor is captured in physical pixels, then mapped into the
+        // requested logical rectangle. Gaps between monitors stay transparent.
+        for (Screen s : Screen.getScreens()) {
+            double left = Math.max(x,s.getX()), top = Math.max(y,s.getY());
+            double right = Math.min(x+width,s.getX()+(double)s.getWidth()), bottom = Math.min(y+height,s.getY()+(double)s.getHeight());
+            if (right <= left || bottom <= top) continue;
+            int px = s.toPlatformX((float)left), py = s.toPlatformY((float)top);
+            int pw = Math.max(1,s.toPlatformX((float)right)-px), ph = Math.max(1,s.toPlatformY((float)bottom)-py);
+            int[] pixels = GodotBridge.robotCapture(px,py,pw,ph);
+            int l = Math.max(0,(int)Math.ceil((left-x)*scaleX)), t = Math.max(0,(int)Math.ceil((top-y)*scaleY));
+            int r = Math.min(w,(int)Math.ceil((right-x)*scaleX)), b = Math.min(h,(int)Math.ceil((bottom-y)*scaleY));
+            for (int iy=t; iy<b; ++iy) {
+                int sy = Math.clamp(s.toPlatformY((float)(y+iy/scaleY))-py,0,ph-1);
+                for (int ix=l; ix<r; ++ix) {
+                    int sx = Math.clamp(s.toPlatformX((float)(x+ix/scaleX))-px,0,pw-1);
+                    result[iy*w+ix] = pixels[sy*pw+sx];
+                }
+            }
+        }
+        if (image == null || image.getWidth() != w || image.getHeight() != h) image = new WritableImage(w,h);
+        image.getPixelWriter().setPixels(0,0,w,h,PixelFormat.getIntArgbInstance(),result,0,w);
+        return image;
+    }
+}

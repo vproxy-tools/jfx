@@ -363,6 +363,13 @@ public abstract class Toolkit {
                                           Modality modality, TKStage owner, boolean rtl, boolean darkFrame);
 
     public abstract TKStage createTKPopupStage(Window peerWindow, StageStyle popupStyle, TKStage owner);
+
+    /** Placement bounds for logical popups; ordinary toolkits use monitor bounds. */
+    public javafx.geometry.Rectangle2D getPopupBounds(javafx.geometry.Rectangle2D screenBounds) {
+        return screenBounds;
+    }
+    public void addPopupBoundsListener(Runnable listener) { }
+    public void removePopupBoundsListener(Runnable listener) { }
     public abstract TKStage createTKEmbeddedStage(HostInterface host);
 
     // The following collections of listeners is weakly referenced here in order

@@ -117,16 +117,26 @@ public class ImagePool {
         numAccessed++;
         pixelsAccessed += ((long) w) * h;
         // first look for an already cached image of sufficient size,
-        // choosing the one that is closest in size to the requested dimensions
+        // choosing the one that is closest in size to the requested dimensions.
+        // FIFO reuse (oldest first) rotates equal-size images through the
+        // effect chain positions every frame, so downstream content caches
+        // keyed on the image identity never repeat; scanning most-recently-
+        // checked-in first gives each chain position a stable image across
+        // frames instead. Opt out with GODOT_JFX_IMAGE_POOL_LIFO=0.
+        final boolean lifoReuse = !"0".equals(System.getenv("GODOT_JFX_IMAGE_POOL_LIFO"));
         SoftReference<PoolFilterable> chosenEntry = null;
         PoolFilterable chosenImage = null;
         int mindiff = Integer.MAX_VALUE;
-        Iterator<SoftReference<PoolFilterable>> entries = unlocked.iterator();
-        while (entries.hasNext()) {
-            SoftReference<PoolFilterable> entry = entries.next();
+        for (int index = lifoReuse ? unlocked.size() - 1 : 0;
+                lifoReuse ? index >= 0 : index < unlocked.size();
+                index += lifoReuse ? -1 : 1) {
+            SoftReference<PoolFilterable> entry = unlocked.get(index);
             PoolFilterable eimg = entry.get();
             if (eimg == null) {
-                entries.remove();
+                unlocked.remove(index);
+                // Forward traversal must revisit the entry shifted into this
+                // index. Reverse traversal already advances to an untouched one.
+                if (!lifoReuse) --index;
                 continue;
             }
             int ew = eimg.getMaxContentWidth();
@@ -136,7 +146,9 @@ public class ImagePool {
                 if (chosenEntry == null || diff < mindiff) {
                     eimg.lock();
                     if (eimg.isLost()) {
-                        entries.remove();
+                        eimg.unlock();
+                        unlocked.remove(index);
+                        if (!lifoReuse) --index;
                         continue;
                     }
                     if (chosenImage != null) {
@@ -163,7 +175,7 @@ public class ImagePool {
         }
 
         // get rid of expired entries from locked list
-        entries = locked.iterator();
+        Iterator<SoftReference<PoolFilterable>> entries = locked.iterator();
         while (entries.hasNext()) {
             SoftReference<PoolFilterable> entry = entries.next();
             Filterable eimg = entry.get();

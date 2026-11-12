@@ -546,7 +546,11 @@ final class QuantumClipboard implements TKClipboard {
                 return true;
             } else if (dataFormat == DataFormat.IMAGE &&
                        t.equalsIgnoreCase(Clipboard.HTML_TYPE)) {
-                return getLocalHtmlImageUrl(assistant.getData(Clipboard.HTML_TYPE)) != null;
+                // A raw image mime may still appear later in the list; only
+                // the HTML image fallback decides here, it must not end the scan.
+                if (getLocalHtmlImageUrl(assistant.getData(Clipboard.HTML_TYPE)) != null) {
+                    return true;
+                }
             } else if (dataFormat == DataFormat.FILES &&
                     t.equalsIgnoreCase(Clipboard.FILE_LIST_TYPE)) {
                 return true;

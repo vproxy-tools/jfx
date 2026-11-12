@@ -194,6 +194,14 @@ public abstract class BaseContext {
 
     abstract public RTTexture getLCDBuffer();
 
+    /**
+     * True when the pipeline's second-pass LCD shader samples the destination
+     * through the renderer's backbuffer. The LCDBuffer is then never created
+     * for glyph drawing and the second texture-coordinate set carries no
+     * meaningful destination coordinates.
+     */
+    public boolean lcdScreenSample() { return false; }
+
     public GlyphCache getGlyphCache(FontStrike strike) {
         Map<FontStrike, GlyphCache> glyphCaches =
             (strike.getAAMode() ==FontResource.AA_LCD)

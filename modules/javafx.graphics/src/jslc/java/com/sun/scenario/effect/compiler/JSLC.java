@@ -26,6 +26,7 @@
 package com.sun.scenario.effect.compiler;
 
 import com.sun.scenario.effect.compiler.backend.hw.ES2Backend;
+import com.sun.scenario.effect.compiler.backend.hw.GodotBackend;
 import com.sun.scenario.effect.compiler.backend.hw.HLSLBackend;
 import com.sun.scenario.effect.compiler.backend.hw.MSLBackend;
 import com.sun.scenario.effect.compiler.backend.prism.PrismBackend;
@@ -67,6 +68,7 @@ public class JSLC {
     public static final int OUT_SSE_NATIVE      = (1 << 6);
     public static final int OUT_ME_JAVA         = (1 << 7);
     public static final int OUT_ME_NATIVE       = (1 << 8);
+    public static final int OUT_GODOT           = (1 << 9);
 
     public static final int OUT_ME       = OUT_ME_JAVA | OUT_ME_NATIVE;
     public static final int OUT_SSE      = OUT_SSE_JAVA | OUT_SSE_NATIVE;
@@ -75,7 +77,7 @@ public class JSLC {
     public static final int OUT_HW_PEERS   = OUT_PRISM;
     public static final int OUT_ALL_PEERS  = OUT_SW_PEERS | OUT_HW_PEERS;
 
-    public static final int OUT_HW_SHADERS = OUT_D3D | OUT_ES2 | OUT_MTL;
+    public static final int OUT_HW_SHADERS = OUT_D3D | OUT_ES2 | OUT_MTL | OUT_GODOT;
 
     private static final String rootPkg = "com/sun/scenario/effect";
     public static final STGroup group;
@@ -137,6 +139,7 @@ public class JSLC {
         OUT_D3D,        "decora-d3d/build/gensrc/{pkg}/impl/hw/d3d/hlsl/{name}.hlsl",
         OUT_MTL,        "decora-mtl/build/gensrc/{pkg}/impl/hw/mtl/msl/{name}.metal",
         OUT_ES2,        "decora-es2/build/gensrc/{pkg}/impl/es2/glsl/{name}.frag",
+        OUT_GODOT,      "decora-godot/build/gensrc/{pkg}/impl/godot/shaders/{name}.gdshader",
         OUT_JAVA,       "decora-jsw/build/gensrc/{pkg}/impl/sw/java/JSW{name}Peer.java",
         OUT_PRISM,      "decora-prism-ps/build/gensrc/{pkg}/impl/prism/ps/PPS{name}Peer.java",
         OUT_SSE_JAVA,   "decora-sse/build/gensrc/{pkg}/impl/sw/sse/SSE{name}Peer.java",
@@ -224,6 +227,16 @@ public class JSLC {
                 es2Backend.scan(pinfo.program);
                 write(es2Backend.getShader(), outFile);
             }
+        }
+
+        if ((outTypes & OUT_GODOT) != 0) {
+            File outFile = jslcinfo.getOutputFile(OUT_GODOT);
+            // Gradle tracks compiler inputs. Regenerate when it invokes us,
+            // including backend changes without a newer JSL source timestamp.
+            if (pinfo == null) pinfo = getParserInfo(stream);
+            GodotBackend backend = new GodotBackend(pinfo.parser, pinfo.visitor);
+            backend.scan(pinfo.program);
+            write(backend.getShader(), outFile);
         }
 
         if ((outTypes & OUT_MTL) != 0) {
@@ -401,6 +414,8 @@ public class JSLC {
                 outTypes |= OUT_D3D;
             } else if (arg.equals("-es2")) {
                 outTypes |= OUT_ES2;
+            } else if (arg.equals("-godot")) {
+                outTypes |= OUT_GODOT;
             } else if (arg.equals("-mtl")) {
                 outTypes |= OUT_MTL;
             } else if (arg.equals("-java")) {

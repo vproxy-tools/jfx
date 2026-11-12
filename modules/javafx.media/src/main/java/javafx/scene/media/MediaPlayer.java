@@ -53,6 +53,7 @@ import javafx.util.Pair;
 
 import com.sun.javafx.tk.TKPulseListener;
 import com.sun.javafx.tk.Toolkit;
+import com.sun.javafx.media.PrismMediaFrameHandler;
 import com.sun.media.jfxmedia.MediaManager;
 import com.sun.media.jfxmedia.control.VideoDataBuffer;
 import com.sun.media.jfxmedia.events.AudioSpectrumEvent;
@@ -1438,6 +1439,16 @@ public final class MediaPlayer {
                 }
 
                 // Perform the seek.
+                synchronized (renderLock) {
+                    if (nextRenderFrame != null) {
+                        nextRenderFrame.releaseFrame();
+                        nextRenderFrame = null;
+                    }
+                    if (followingRenderFrame != null) {
+                        followingRenderFrame.releaseFrame();
+                        followingRenderFrame = null;
+                    }
+                }
                 jfxPlayer.seek(seekSeconds);
             }
         }
@@ -2387,6 +2398,9 @@ public final class MediaPlayer {
                 }
                 jfxPlayer = null;
             }
+            // A disposed player cannot render another frame. Do not retain its
+            // per-screen GPU planes until a later garbage collection.
+            PrismMediaFrameHandler.releaseHandler(this);
         }
     }
 
@@ -2496,6 +2510,10 @@ public final class MediaPlayer {
             Platform.runLater(() -> {
                 // Destroy media time and update current time
                 destroyMediaTimer();
+                // A confirmed stop rewinds playback to startTime. Leaving the
+                // previous end-of-stream flag set makes getCurrentTime() keep
+                // reporting stopTime even after the next play has started.
+                isEOS = false;
                 startTimeAtStop = getStartTime();
                 setCurrentTime(getStartTime());
                 setStatus(Status.STOPPED);
@@ -2669,6 +2687,9 @@ public final class MediaPlayer {
     private final Object renderLock = new Object();
     private VideoDataBuffer currentRenderFrame;
     private VideoDataBuffer nextRenderFrame;
+    // A bounded second slot absorbs decoder callback jitter around a pulse.
+    // Keep only the newest two pending frames when the renderer falls behind.
+    private VideoDataBuffer followingRenderFrame;
 
     // NGMediaView will call this to get the frame to render
     /**
@@ -2690,8 +2711,6 @@ public final class MediaPlayer {
             com.sun.media.jfxmedia.events.VideoRendererListener,
             TKPulseListener
     {
-        boolean updateMediaViews;
-
         @Override
         public void videoFrameUpdated(NewFrameEvent nfe) {
             VideoDataBuffer vdb = nfe.getFrameData();
@@ -2700,16 +2719,25 @@ public final class MediaPlayer {
                 Duration frameTS = new Duration(vdb.getTimestamp() * 1000);
                 Duration stopTime = getStopTime();
                 if (frameTS.greaterThanOrEqualTo(getStartTime()) && (stopTime.isUnknown() || frameTS.lessThanOrEqualTo(stopTime))) {
-                    updateMediaViews = true;
-
                     synchronized (renderLock) {
                         vdb.holdFrame();
-
-                        // currentRenderFrame must not be touched, queue this one for later
-                        if (null != nextRenderFrame) {
-                            nextRenderFrame.releaseFrame();
+                        // A timestamp reversal denotes a restart/seek. Do not
+                        // present a pending frame from the previous timeline.
+                        if (nextRenderFrame != null && vdb.getTimestamp() < nextRenderFrame.getTimestamp()) {
+                            nextRenderFrame.releaseFrame();nextRenderFrame = null;
+                            if (followingRenderFrame != null) {
+                                followingRenderFrame.releaseFrame();followingRenderFrame = null;
+                            }
                         }
-                        nextRenderFrame = vdb;
+                        if (nextRenderFrame == null) {
+                            nextRenderFrame = vdb;
+                        } else {
+                            if (followingRenderFrame != null) {
+                                nextRenderFrame.releaseFrame();
+                                nextRenderFrame = followingRenderFrame;
+                            }
+                            followingRenderFrame = vdb;
+                        }
                     }
                     // make sure we get the next pulse so we can update our textures
                     Toolkit.getToolkit().requestNextPulse();
@@ -2731,38 +2759,37 @@ public final class MediaPlayer {
                     nextRenderFrame.releaseFrame();
                     nextRenderFrame = null;
                 }
+                if (followingRenderFrame != null) {
+                    followingRenderFrame.releaseFrame();
+                    followingRenderFrame = null;
+                }
             }
         }
 
         @Override
         public void pulse() {
-            if (updateMediaViews) {
-                updateMediaViews = false;
+            boolean pending;
+            // Test and consume under the same lock as the producer. The old
+            // unsynchronized dirty flag could also race with frame publication.
+            synchronized (renderLock) {
+                if (nextRenderFrame == null) return;
+                if (currentRenderFrame != null) currentRenderFrame.releaseFrame();
+                currentRenderFrame = nextRenderFrame;
+                nextRenderFrame = followingRenderFrame;
+                followingRenderFrame = null;
+                pending = nextRenderFrame != null;
+            }
+            if (pending) Toolkit.getToolkit().requestNextPulse();
 
-                /* swap in the next frame if there is one
-                 * this should be done exactly once per render cycle so that all
-                 * views display the same image.
-                 */
-                synchronized (renderLock) {
-                    if (null != nextRenderFrame) {
-                        if (null != currentRenderFrame) {
-                            currentRenderFrame.releaseFrame();
-                        }
-                        currentRenderFrame = nextRenderFrame;
-                        nextRenderFrame = null;
-                    }
-                }
-
-                // tell all media views that their content needs to be redrawn
-                synchronized (viewRefs) {
-                    Iterator<WeakReference<MediaView>> iter = viewRefs.iterator();
-                    while (iter.hasNext()) {
-                        MediaView view = iter.next().get();
-                        if (null != view) {
-                            view.notifyMediaFrameUpdated();
-                        } else {
-                            iter.remove();
-                        }
+            // tell all media views that their content needs to be redrawn
+            synchronized (viewRefs) {
+                Iterator<WeakReference<MediaView>> iter = viewRefs.iterator();
+                while (iter.hasNext()) {
+                    MediaView view = iter.next().get();
+                    if (null != view) {
+                        view.notifyMediaFrameUpdated();
+                    } else {
+                        iter.remove();
                     }
                 }
             }

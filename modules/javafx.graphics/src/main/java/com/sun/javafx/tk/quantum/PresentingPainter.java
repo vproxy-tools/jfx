@@ -110,6 +110,13 @@ final class PresentingPainter extends ViewPainter {
                     }
                 }
             }
+        } catch (com.sun.javafx.tk.godot.GodotHostStoppedException cancelled) {
+            // The Godot host has permanently closed admission. Retire the
+            // incomplete presentable instead of retrying the frame. Keep the
+            // normal finally path (including error-path texture unlocking) so
+            // Quantum can observe rendering completion and finish shutdown.
+            errored = true;
+            disposePresentable();
         } catch (Throwable th) {
             errored = true;
             th.printStackTrace(System.err);

@@ -34,7 +34,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 
-final class WinHTMLCodec {
+public final class WinHTMLCodec {
     public static final String defaultCharset = "UTF-8";
 
     public static byte[] encode(byte[] html) {

@@ -651,6 +651,16 @@ public abstract class Application {
     protected abstract double staticScreen_getVideoRefreshPeriod();
     protected abstract Screen[] staticScreen_getScreens();
 
+    /** Optional logical popup work area in screen coordinates (x, y, width, height).
+     * A null result uses the monitor work area. Embedded window hosts can constrain
+     * popup placement without changing the application's monitor enumeration.
+     */
+    public int[] getPopupBounds() { return null; }
+
+    /** Event-thread notifications for a changing logical popup work area. */
+    public void addPopupBoundsListener(Runnable listener) { }
+    public void removePopupBoundsListener(Runnable listener) { }
+
     public abstract Timer createTimer(Runnable runnable);
     protected abstract int staticTimer_getMinPeriod();
     protected abstract int staticTimer_getMaxPeriod();

@@ -515,13 +515,19 @@ static IPin* dshowwrapper_get_pin(IBaseFilter *pFilter, PIN_DIRECTION direction,
         AM_MEDIA_TYPE *pmt = NULL;
         hr = pPin->EnumMediaTypes(&pEnum);
         if (FAILED(hr))
+        {
+            pPin->Release();
             return NULL;
+        }
 
         while (hr = pEnum->Next(1, &pmt, NULL), hr == S_OK)
         {
             if (majorType == pmt->majortype && subType == pmt->subtype)
             {
                 DeleteMediaType(pmt);
+                // The caller owns the returned pin, but not its enumerator.
+                // Keeping the enumerator alive also retains the decoder filter.
+                pEnum->Release();
                 return pPin;
             }
             DeleteMediaType(pmt);

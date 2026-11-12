@@ -1740,6 +1740,7 @@ void addJSL(Project project, String name, String pkg, List<String> addExports, C
         def sourceDir = project.file("src/main/jsl-$lowerName")
         def destinationDir = project.file("$project.buildDir/gensrc/jsl-$lowerName")
         inputs.dir sourceDir
+        inputs.files(project.sourceSets.jslc.output, compileCompilers.outputs.files)
         outputs.dir destinationDir
         doLast {
             compile(sourceDir, destinationDir)
@@ -1777,7 +1778,7 @@ void addJSL(Project project, String name, String pkg, List<String> addExports, C
             include "**/*.obj"
         }
         from("$project.buildDir/gensrc/jsl-$lowerName") {
-            include("**/*.frag")
+            include("**/*.frag", "**/*.gdshader")
         }
         into project.moduleDir
     }
@@ -1793,7 +1794,7 @@ void addJSL(Project project, String name, String pkg, List<String> addExports, C
             include "**/*.obj"
         }
         from("$project.buildDir/gensrc/jsl-$lowerName") {
-            include("**/*.frag")
+            include("**/*.frag", "**/*.gdshader")
         }
         into project.moduleShimsDir
     }
@@ -2531,7 +2532,7 @@ project(":graphics") {
                 jvmArgs += "--module-path=$modulePath"
                 jvmArgs += "--add-modules=javafx.graphics"
                 jvmArgs += decoraAddExports
-                args += ["-i", sourceDir, "-o", destinationDir, "-t", "-pkg", "com/sun/scenario/effect"]
+                args += ["-i", sourceDir, "-o", destinationDir, "-t", "-pkg", "com/sun/scenario/effect", "-godot"]
                 if (IS_WINDOWS) {
                     args += [ "-d3d" ]
                 } else if (IS_MAC) {
@@ -2631,7 +2632,7 @@ project(":graphics") {
                 classpath += files(project.sourceSets.jslc.resources)
                 classpath += files("$buildDir/classes/jsl-compilers/prism",
                     project.projectDir.path + "/src/main/jsl-prism") // for the .stg
-                args = ["-i", sourceDir, "-o", destinationDir, "-t", "-pkg", "com/sun/prism"]
+                args = ["-i", sourceDir, "-o", destinationDir, "-t", "-pkg", "com/sun/prism", "-godot"]
                 if (IS_WINDOWS) {
                     args += [ "-d3d" ]
                 } else if (IS_MAC) {

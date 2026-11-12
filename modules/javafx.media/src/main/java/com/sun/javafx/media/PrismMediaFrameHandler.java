@@ -67,6 +67,16 @@ public class PrismMediaFrameHandler implements ResourceFactoryListener {
 
     private WeakReference<ResourceFactory> registeredWithFactory = null;
 
+    /** Release a disposed provider's cached GPU planes on the render thread. */
+    public synchronized static void releaseHandler(Object provider) {
+        if (handlers != null) {
+            PrismMediaFrameHandler handler = handlers.remove(provider);
+            if (handler != null) {
+                handler.releaseTextures();
+            }
+        }
+    }
+
     private PrismMediaFrameHandler(Object provider) {
     }
 

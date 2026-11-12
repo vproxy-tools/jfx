@@ -546,7 +546,9 @@ public abstract class Effect {
          * Indicates that this {@code Effect} is being accelerated in
          * graphics hardware via Metal.
          */
-        METAL("Metal");
+        METAL("Metal"),
+        /** GPU rendering through the Godot RenderingServer host. */
+        GODOT("Godot GPU");
 
         private String text;
 

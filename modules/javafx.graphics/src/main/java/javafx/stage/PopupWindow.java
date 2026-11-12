@@ -779,9 +779,9 @@ public abstract class PopupWindow extends Window {
             final Screen currentScreen =
                     Utils.getScreenForPoint(newAnchorX, newAnchorY);
             final Rectangle2D screenBounds =
-                    Utils.hasFullScreenStage(currentScreen)
+                    Toolkit.getToolkit().getPopupBounds(Utils.hasFullScreenStage(currentScreen)
                             ? currentScreen.getBounds()
-                            : currentScreen.getVisualBounds();
+                            : currentScreen.getVisualBounds());
 
             if (anchorXCoef <= 0.5) {
                 // left side of the popup is more important, try to keep it
@@ -936,6 +936,7 @@ public abstract class PopupWindow extends Window {
         ownerFocusedListener = null;
     }
 
+    private final Runnable popupBoundsUpdater = () -> updateWindow(getAnchorX(), getAnchorY());
     private boolean autofixActive;
     private void handleAutofixActivation(final boolean visible,
                                          final boolean autofix) {
@@ -944,9 +945,11 @@ public abstract class PopupWindow extends Window {
             autofixActive = newAutofixActive;
             if (newAutofixActive) {
                 Screen.getScreens().addListener(popupWindowUpdater);
+                Toolkit.getToolkit().addPopupBoundsListener(popupBoundsUpdater);
                 updateWindow(getAnchorX(), getAnchorY());
             } else {
                 Screen.getScreens().removeListener(popupWindowUpdater);
+                Toolkit.getToolkit().removePopupBoundsListener(popupBoundsUpdater);
             }
         }
     }

@@ -120,7 +120,7 @@ public class GlyphCache {
                        BaseTransform xform, BaseBounds clip) {
 
         int dstw, dsth;
-        if (isLCDCache) {
+        if (isLCDCache && !ctx.lcdScreenSample()) {
             dstw = ctx.getLCDBuffer().getPhysicalWidth();
             dsth = ctx.getLCDBuffer().getPhysicalHeight();
         } else {

@@ -1934,14 +1934,32 @@ public abstract class BaseShaderGraphics
 
     private boolean lcdSampleInvalid = false;
 
+    /**
+     * Pipelines whose second-pass LCD shader samples the destination through
+     * the renderer's per-draw backbuffer (screen texture) set this to skip the
+     * per-text-node LCDBuffer copy round-trip. The destination snapshot then
+     * happens inside the renderer when the glyph batch draws.
+     */
+    protected boolean lcdScreenSample = false;
+
     @Override
     public void setNodeBounds(RectBounds bounds) {
         nodeBounds = bounds;
         lcdSampleInvalid = bounds != null;
     }
 
+    /** Called only by pipelines opting into renderer-backed LCD snapshots. */
+    protected void prepareLCDScreenSample() { }
+
     private void initLCDSampleRT() {
         if (lcdSampleInvalid) {
+            if (lcdScreenSample) {
+                // Preserve the per-node snapshot boundary even when the
+                // renderer performs the copy instead of an LCDBuffer.
+                prepareLCDScreenSample();
+                lcdSampleInvalid = false;
+                return;
+            }
             RectBounds textBounds = new RectBounds();
             getTransformNoClone().transform(nodeBounds, textBounds);
             Rectangle clipRect = getClipRectNoClone();

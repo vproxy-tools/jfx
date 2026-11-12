@@ -453,7 +453,13 @@ public class Stage extends Window {
 
         show();
         inNestedEventLoop = true;
-        Toolkit.getToolkit().enterNestedEventLoop(this);
+        try {
+            Toolkit.getToolkit().enterNestedEventLoop(this);
+        } finally {
+            // Toolkit shutdown can leave all nested loops before hiding their
+            // Stages. A later hide must not try to leave the same loop again.
+            inNestedEventLoop = false;
+        }
     }
 
     private StageStyle style; // default is set in constructor

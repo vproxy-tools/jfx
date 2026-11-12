@@ -526,9 +526,9 @@ public class Utils {
         // ...and then we get the bounds of this screen
         final Screen currentScreen = getScreen(parent);
         final Rectangle2D screenBounds =
-                hasFullScreenStage(currentScreen)
+                com.sun.javafx.tk.Toolkit.getToolkit().getPopupBounds(hasFullScreenStage(currentScreen)
                         ? currentScreen.getBounds()
-                        : currentScreen.getVisualBounds();
+                        : currentScreen.getVisualBounds());
 
         // test if this layout will force the node to appear outside
         // of the screens bounds. If so, we must reposition the item to a better position.

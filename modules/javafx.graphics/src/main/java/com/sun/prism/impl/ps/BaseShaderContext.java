@@ -343,12 +343,23 @@ public abstract class BaseShaderContext extends BaseContext {
     private void updatePerVertexColor(Paint paint, float extraAlpha) {
         if (checkDisposed()) return;
 
+        extraAlpha = vertexColorModulation(extraAlpha);
         if (paint != null && paint.getType() == Paint.Type.COLOR) {
             getVertexBuffer().setPerVertexColor((Color)paint, extraAlpha);
         } else {
             getVertexBuffer().setPerVertexColor(extraAlpha);
         }
     }
+
+    /**
+     * Pipelines that carry the uniform extra alpha as a draw parameter rather
+     * than baking it into vertex colors return 1 here. While the return value
+     * is 1 the batch's vertices stay byte-identical across frames under
+     * opacity animation, so content-based caching still applies. Such
+     * pipelines must flush the vertex buffer whenever the returned modulation
+     * would change, keeping one flush batch at exactly one modulation value.
+     */
+    protected float vertexColorModulation(float extraAlpha) { return extraAlpha; }
 
     @Override
     public void validateClearOp(BaseGraphics g) {
@@ -751,6 +762,11 @@ public abstract class BaseShaderContext extends BaseContext {
         }
     }
 
+    // Diagnostic: render-target/state updates at this context boundary,
+    // including window targets and camera/depth changes. This is not a count
+    // of GPU submissions, offscreen-only passes, or displayed frames.
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_SWITCHES = new java.util.concurrent.atomic.AtomicLong();
+
     @Override
     public RTTexture getLCDBuffer() {
         return lcdBuffer;
@@ -790,6 +806,7 @@ public abstract class BaseShaderContext extends BaseContext {
         {
             flushVertexBuffer();
             state = updateRenderTarget(target, camera, depthTest);
+            TARGET_SWITCHES.incrementAndGet();
             state.lastRenderTarget = target;
             state.lastCamera = camera;
             state.lastDepthTest = depthTest;
