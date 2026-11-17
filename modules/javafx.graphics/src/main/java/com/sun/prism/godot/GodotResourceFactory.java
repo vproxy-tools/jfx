@@ -64,6 +64,15 @@ public final class GodotResourceFactory extends BaseShaderFactory {
         }
         frame.holdFrame();
         try {
+            // Packed formats without a Godot texture mapping (e.g. AVFoundation
+            // BYTE_APPLE_422) fall back to an ARGB conversion, like J2D/SW.
+            if (!GodotTexture.supports(frame.getPixelFormat())) {
+                MediaFrame converted = frame.convertToFormat(PixelFormat.INT_ARGB_PRE);
+                if (converted == null) return null;
+                frame.releaseFrame();
+                frame = converted;
+                frame.holdFrame();
+            }
             int width = frame.getWidth(), height = frame.getHeight();
             if (frame.planeCount() != 1 || width < 1 || height < 1
                     || width > frame.getEncodedWidth() || height > frame.getEncodedHeight())

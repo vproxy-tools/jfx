@@ -153,7 +153,7 @@ public final class GodotApplication extends HeadlessApplication {
         String[] files = null;
         if (data.get(Clipboard.FILE_LIST_TYPE) instanceof String[] paths) files = paths; // Quantum layer stores paths, not Files.
         GodotBridge.dragStartExternal((String) data.get(Clipboard.TEXT_TYPE),
-                html == null ? null : com.sun.glass.ui.win.WinHTMLCodec.encode(terminated(html, java.nio.charset.StandardCharsets.UTF_8)),
+                html == null ? null : GodotHtmlCodec.encode(terminated(html, java.nio.charset.StandardCharsets.UTF_8)),
                 rtf == null ? null : terminated(rtf, java.nio.charset.StandardCharsets.US_ASCII),
                 (String) data.get(Clipboard.URI_TYPE), files,
                 customNames.isEmpty() ? null : customNames.toArray(String[]::new),
@@ -270,7 +270,7 @@ public final class GodotApplication extends HeadlessApplication {
         var data = new java.util.HashMap<String,Object>();
         if (text != null) data.put(Clipboard.TEXT_TYPE, text);
         if (html != null) data.put(Clipboard.HTML_TYPE,
-                new String(com.sun.glass.ui.win.WinHTMLCodec.decode(html), java.nio.charset.StandardCharsets.UTF_8));
+                new String(GodotHtmlCodec.decode(html), java.nio.charset.StandardCharsets.UTF_8));
         if (rtf != null && rtf.length > 0) data.put(Clipboard.RTF_TYPE, new String(rtf, 0, rtf.length - 1, java.nio.charset.StandardCharsets.US_ASCII));
         if (url != null) data.put(Clipboard.URI_TYPE, url);
         if (files != null) {

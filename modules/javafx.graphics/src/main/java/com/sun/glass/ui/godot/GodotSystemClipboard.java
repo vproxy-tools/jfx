@@ -14,7 +14,6 @@ import java.nio.ByteOrder;
 import java.nio.IntBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import com.sun.glass.ui.win.WinHTMLCodec;
 
 /** Immediate Windows text/HTML/RTF/URL/files/image transfer using the existing Godot HWND. */
 final class GodotSystemClipboard extends SystemClipboard {
@@ -69,7 +68,7 @@ final class GodotSystemClipboard extends SystemClipboard {
         }
         String html = (String)data.get(HTML_TYPE);
         String rtf = (String)data.get(RTF_TYPE);
-        byte[] htmlBytes = html == null ? null : WinHTMLCodec.encode(terminated(html,StandardCharsets.UTF_8));
+        byte[] htmlBytes = html == null ? null : GodotHtmlCodec.encode(terminated(html,StandardCharsets.UTF_8));
         byte[] rtfBytes = rtf == null ? null : terminated(rtf,StandardCharsets.US_ASCII);
         GodotBridge.clipboardWriteFull((String)data.get(TEXT_TYPE),htmlBytes,rtfBytes,(String)data.get(URI_TYPE),files,image,imageWidth,imageHeight,
                 customNames.isEmpty() ? null : customNames.toArray(String[]::new),
@@ -171,7 +170,7 @@ final class GodotSystemClipboard extends SystemClipboard {
         if (FILE_LIST_TYPE.equals(mime)) return GodotBridge.clipboardReadFiles();
         if (HTML_TYPE.equals(mime)) {
             byte[] bytes=GodotBridge.clipboardReadRich(0);
-            return bytes == null ? null : new String(WinHTMLCodec.decode(bytes),StandardCharsets.UTF_8);
+            return bytes == null ? null : new String(GodotHtmlCodec.decode(bytes),StandardCharsets.UTF_8);
         }
         if (RTF_TYPE.equals(mime)) {
             byte[] bytes=GodotBridge.clipboardReadRich(1);

@@ -396,7 +396,7 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink,
 
 - (void) setCurrentTime:(double)time
 {
-    [self.player seekToTime:CMTimeMakeWithSeconds(time, 1)];
+    [self.player seekToTime:CMTimeMakeWithSeconds(time, 600)];
     if (previousPlayerState == kPlayerState_FINISHED) {
         [self play];
     }

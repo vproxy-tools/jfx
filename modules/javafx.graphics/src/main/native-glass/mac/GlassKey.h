@@ -38,3 +38,5 @@ NSString* GetStringForMacKey(unsigned short keyCode, bool shifted);
 
 // for key event injection
 BOOL GetMacKey(jint javaKeyCode, unsigned short *outMacKeyCode);
+// Static US QWERTY table only; safe off the main thread (no TSM queries).
+BOOL GetQwertyMacKey(jint javaKeyCode, unsigned short *outMacKeyCode);

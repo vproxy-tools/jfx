@@ -471,6 +471,26 @@ jcharArray GetJavaKeyChars(JNIEnv *env, NSEvent *event)
     return jChars;
 }
 
+BOOL GetQwertyMacKey(jint javaKeyCode, unsigned short *outMacKeyCode)
+{
+    if (javaKeyCode == com_sun_glass_events_KeyEvent_VK_UNDEFINED) {
+        return NO;
+    }
+    // Only the static US QWERTY table: the TSM fallback in GetMacKey asserts
+    // the main dispatch queue, and the Godot-hosted robot posts keys from the
+    // FX thread. For layout-sensitive keys this returns the QWERTY position,
+    // which matches the fixed-VK semantics robots have on other platforms.
+    for (int index = 0; index < gKeyMapSize; index++)
+    {
+        if (gKeyMap[index].jKeyCode == javaKeyCode)
+        {
+            *outMacKeyCode = gKeyMap[index].keyCode;
+            return YES;
+        }
+    }
+    return NO;
+}
+
 BOOL GetMacKey(jint javaKeyCode, unsigned short *outMacKeyCode)
 {
     if (javaKeyCode == com_sun_glass_events_KeyEvent_VK_UNDEFINED) {

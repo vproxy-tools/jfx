@@ -157,8 +157,18 @@ public class GodotTexture extends BaseTexture<GodotTexture.Resource> {
     }
 
     @Override public void update(MediaFrame frame, boolean skipFlush) {
-        if (frame.getPixelFormat() != getPixelFormat() || frame.planeCount() != 1) throw new UnsupportedOperationException("Godot planar/media format conversion is not implemented");
-        frame.holdFrame();
+        if (frame.planeCount() != 1) throw new UnsupportedOperationException("Godot planar/media format conversion is not implemented");
+        if (frame.getPixelFormat() != getPixelFormat()) {
+            // Packed formats without a Godot texture mapping (e.g. AVFoundation
+            // BYTE_APPLE_422) convert to the texture's format, like J2D/SW.
+            frame.holdFrame();
+            MediaFrame converted = frame.convertToFormat(getPixelFormat());
+            frame.releaseFrame();
+            if (converted == null) throw new UnsupportedOperationException("Godot planar/media format conversion is not implemented");
+            frame = converted;
+        } else {
+            frame.holdFrame();
+        }
         try {
             ByteBuffer bytes = frame.getBufferForPlane(0).duplicate();
             Buffer pixels = getPixelFormat() == PixelFormat.INT_ARGB_PRE ? bytes.order(java.nio.ByteOrder.nativeOrder()).asIntBuffer() : bytes;

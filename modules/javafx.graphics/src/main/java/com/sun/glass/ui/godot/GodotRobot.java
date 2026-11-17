@@ -6,15 +6,35 @@ import com.sun.glass.ui.GlassRobot;
 import com.sun.glass.ui.Screen;
 import com.sun.glass.ui.win.WinPlatformFactory;
 import com.sun.javafx.tk.godot.GodotBridge;
+import java.util.Locale;
 import javafx.scene.image.WritableImage;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseButton;
 import javafx.scene.paint.Color;
 
-/** Windows desktop Robot using the host's logical/physical monitor mapping. */
+/** Desktop Robot using the host's logical/physical monitor mapping. */
 final class GodotRobot extends GlassRobot {
-    private final GlassRobot input = WinPlatformFactory.createInputRobot();
+    private static GlassRobot createInputRobot() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("win")) return WinPlatformFactory.createInputRobot();
+        if (os.contains("mac")) {
+            // The hosted runtime never loads the native glass library, but the
+            // macOS input robot lives there. MacRobot is package-private; the
+            // godot glass package shares its module, so reflective access works
+            // without extra JVM flags.
+            System.loadLibrary("glass");
+            try {
+                var ctor = Class.forName("com.sun.glass.ui.mac.MacRobot").getDeclaredConstructor();
+                ctor.setAccessible(true);
+                return (GlassRobot) ctor.newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new UnsupportedOperationException("Cannot create the macOS input robot", e);
+            }
+        }
+        throw new UnsupportedOperationException("No input robot for this platform: " + os);
+    }
+    private final GlassRobot input = createInputRobot();
     private static final int MAX_PIXELS = 16 * 1024 * 1024;
     @Override public void create() { Application.checkEventThread(); input.create(); }
     @Override public void destroy() { Application.checkEventThread(); input.destroy(); }
@@ -40,10 +60,17 @@ final class GodotRobot extends GlassRobot {
         }
         return nearest;
     }
+    private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
     @Override public void mouseMove(double x, double y) {
         Application.checkEventThread(); finite(x,y);
         Screen s = screen(x,y,false);
-        GodotBridge.robotMove(s.toPlatformX((float)x),s.toPlatformY((float)y));
+        if (MAC) {
+            // CGWarpMouseCursorPosition alone delivers no motion events; the
+            // Mac input robot posts real CGEvent mouse-moved/dragged events.
+            input.mouseMove(s.toPlatformX((float)x), s.toPlatformY((float)y));
+        } else {
+            GodotBridge.robotMove(s.toPlatformX((float)x),s.toPlatformY((float)y));
+        }
     }
     private double[] position() {
         Application.checkEventThread();

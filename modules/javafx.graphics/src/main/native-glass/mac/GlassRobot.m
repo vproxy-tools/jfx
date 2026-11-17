@@ -40,6 +40,13 @@
     #define LOG(MSG, ...) GLASS_LOG(MSG, ## __VA_ARGS__);
 #endif
 
+// The Godot-hosted runtime loads libglass only for this robot and never runs
+// the glass application loop, so the main-thread env stays NULL and the
+// assertion below could not pass. The robot posts plain CGEvents and needs no
+// glass application state, so the check is disabled for this file.
+#undef GLASS_ASSERT_MAIN_JAVA_THREAD
+#define GLASS_ASSERT_MAIN_JAVA_THREAD(env)
+
 #define kMouseButtonNone 0
 
 static inline void DumpImage(CGImageRef image)
@@ -78,6 +85,33 @@ static inline void DumpImage(CGImageRef image)
     }
 }
 
+// Pull an off-display point back to the nearest display edge. CGEventPost
+// delivers the requested coordinate verbatim even when the cursor itself is
+// clamped by the warp, so without this the delivered position diverges from
+// the visible cursor (Windows always delivers the clamped position).
+static inline CGPoint ClampToDisplays(CGPoint point)
+{
+    uint32_t count = 0;
+    if (CGGetActiveDisplayList(0, NULL, &count) != kCGErrorSuccess || count == 0) return point;
+    CGDirectDisplayID displays[16];
+    if (count > 16) count = 16;
+    if (CGGetActiveDisplayList(count, displays, &count) != kCGErrorSuccess) return point;
+    CGPoint result = point;
+    CGFloat best = CGFLOAT_MAX;
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        CGRect bounds = CGDisplayBounds(displays[index]);
+        if (CGRectContainsPoint(bounds, point)) return point;
+        CGPoint clamped = CGPointMake(
+                MIN(MAX(point.x, CGRectGetMinX(bounds)), CGRectGetMaxX(bounds) - 1),
+                MIN(MAX(point.y, CGRectGetMinY(bounds)), CGRectGetMaxY(bounds) - 1));
+        CGFloat dx = clamped.x - point.x, dy = clamped.y - point.y;
+        CGFloat distance = dx * dx + dy * dy;
+        if (distance < best) { best = distance; result = clamped; }
+    }
+    return result;
+}
+
 static inline void PostGlassMouseEvent(CGPoint location, UInt32 buttons, BOOL buttonPressed)
 {
     // for each one bit in buttons, post a new mouse {press/release} event
@@ -108,7 +142,9 @@ static inline void PostGlassMouseEvent(CGPoint location, UInt32 buttons, BOOL bu
 static inline void PostGlassKeyEvent(jint code, BOOL keyPressed)
 {
     unsigned short macCode;
-    if (GetMacKey(code, &macCode)) {
+    // GetQwertyMacKey, not GetMacKey: the TSM layout query requires the main
+    // dispatch queue and the Godot-hosted robot posts from the FX thread.
+    if (GetQwertyMacKey(code, &macCode)) {
         // Using CGEvent API proved to be problematic - events for some keys were missing sometimes.
         // So we use the A11Y API instead - just as we do in AWT. It works fine in all cases.
 #pragma clang diagnostic push
@@ -146,7 +182,7 @@ static inline void PostGlassKeyEvent(jint code, BOOL keyPressed)
 
 - (void)mouseMove:(NSPoint)p
 {
-    CGPoint location = NSPointToCGPoint(p);
+    CGPoint location = ClampToDisplays(NSPointToCGPoint(p));
     UInt32 buttons = self->mouseButtons;
     CGEventType type=kCGEventMouseMoved;
     UInt32 index=0;
@@ -378,7 +414,14 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_mac_MacRobot__1mouseWheel
     GLASS_ASSERT_MAIN_JAVA_THREAD(env);
     GLASS_POOL_ENTER
     {
-        CGEventRef newEvent = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 1, (int32_t)wheelAmt);
+        // The window server applies the natural-scrolling inversion to posted
+        // scroll events too; compensate so a positive amount always means
+        // wheel-up like the Windows robot. The preference defaults to ON when
+        // the key is absent.
+        id scrollSetting = [[NSUserDefaults standardUserDefaults] objectForKey:@"com.apple.swipescrolldirection"];
+        BOOL natural = scrollSetting == nil || [scrollSetting boolValue];
+        int32_t amount = natural ? -(int32_t)wheelAmt : (int32_t)wheelAmt;
+        CGEventRef newEvent = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 1, amount);
         CGEventPost(kCGHIDEventTap, newEvent);
         CFRelease(newEvent);
     }
