@@ -305,8 +305,8 @@ public final class GodotApplication extends HeadlessApplication {
             finishDrag(session, Clipboard.ACTION_NONE); return true;
         }
         if (kind == 5 || kind == 6) return true;
-        if (kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 7 && kind != 8) return false;
-        if (kind == 4 || kind == 8) return true;
+        if (kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 7 && kind != 8 && kind != 17) return false;
+        if (kind == 4 || kind == 8 || kind == 17) return true;
         int sx = (int)event[4], sy = (int)event[5];
         GodotWindow window = null;
         for (int n = windows.size()-1; n >= 0; --n) {
@@ -478,7 +478,7 @@ public final class GodotApplication extends HeadlessApplication {
     private void deliver(GodotWindow window, double[] event) {
         if (window == null || !window.acceptsInput() || !(window.getView() instanceof GodotView view)) return;
         int kind = (int)event[0];
-        if (kind <= 4 || (kind >= 7 && kind <= 12)) {
+        if (kind <= 4 || (kind >= 7 && kind <= 12) || kind == 17) {
             event[2] -= window.getX()-hostX(); event[3] -= window.getY()-hostY();
         }
         view.dispatchInput(event,0);
@@ -573,7 +573,7 @@ public final class GodotApplication extends HeadlessApplication {
             // Native input is window-local. The existing capture/delivery code
             // uses root-relative coordinates so dragging across windows keeps
             // the captured View's local coordinates correct.
-            if (kind <= 4 || (kind >= 7 && kind <= 12)) {
+            if (kind <= 4 || (kind >= 7 && kind <= 12) || kind == 17) {
                 event[2] = event[4]-hostX(); event[3] = event[5]-hostY();
             }
             if (kind >= 13) { deliver(source,event); continue; }

@@ -2,6 +2,7 @@
 package com.sun.glass.ui.godot;
 
 import com.sun.glass.events.ViewEvent;
+import com.sun.glass.events.GestureEvent;
 import com.sun.glass.events.MouseEvent;
 import com.sun.glass.events.KeyEvent;
 import com.sun.glass.events.TouchEvent;
@@ -206,6 +207,17 @@ final class GodotView extends View {
                 int lines = GodotInputPacket.scrollSetting(events[i + 10]);
                 int chars = GodotInputPacket.scrollSetting(events[i + 11]);
                 notifyScroll(x, y, sx, sy, events[i + 7], events[i + 8], modifiers, lines, chars, 3, 3, 40.0, 40.0);
+                return;
+            }
+            if (kind == 17) {
+                // macOS scroll contract: native Glass routes wheel ticks and
+                // trackpad pan through MacGestureSupport with a 10px multiplier
+                // (the host already applies the 0.1 point conversion to pan
+                // deltas). Godot reports no gesture phase or momentum flags,
+                // so only performed (SCROLL) events exist, without inertia.
+                double dx = events[i + 7], dy = events[i + 8];
+                notifyScrollGestureEvent(GestureEvent.GESTURE_PERFORMED, modifiers, false,
+                        false, 0, x, y, sx, sy, dx, dy, dx, dy, 10.0, 10.0);
                 return;
             }
             if (kind == 1) {
