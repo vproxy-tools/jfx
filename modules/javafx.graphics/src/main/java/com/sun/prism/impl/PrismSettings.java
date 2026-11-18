@@ -112,6 +112,7 @@ public final class PrismSettings {
     }
 
     static {
+        com.sun.javafx.tk.godot.GodotLibraries.selectBackend();
         final Properties systemProperties = System.getProperties();
 
         /* Vsync */

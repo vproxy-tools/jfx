@@ -1122,6 +1122,9 @@ public class Stage extends Window {
             StageStyle stageStyle = getStyle();
             setPeer(toolkit.createTKStage(this, stageStyle, isPrimary(),
                     getModality(), tkStage, rtl, colorScheme == ColorScheme.DARK));
+            // A newly created peer can become visible before doVisibleChanged.
+            // Publish its configured title before the native window is shown.
+            getPeer().setTitle(getTitle());
             getPeer().setMinimumSize((int) Math.ceil(getMinWidth()),
                     (int) Math.ceil(getMinHeight()));
             getPeer().setMaximumSize((int) Math.floor(getMaxWidth()),
@@ -1152,7 +1155,6 @@ public class Stage extends Window {
             peer.setAlwaysOnTop(isAlwaysOnTop());
             peer.setIconified(isIconified());
             peer.setMaximized(isMaximized());
-            peer.setTitle(getTitle());
 
             if (!isIconified()) {
                 peer.requestFocus();

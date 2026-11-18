@@ -23,7 +23,7 @@ final class GodotRobot extends GlassRobot {
             // macOS input robot lives there. MacRobot is package-private; the
             // godot glass package shares its module, so reflective access works
             // without extra JVM flags.
-            System.loadLibrary("glass");
+            com.sun.glass.utils.NativeLibLoader.loadLibrary("glass");
             try {
                 var ctor = Class.forName("com.sun.glass.ui.mac.MacRobot").getDeclaredConstructor();
                 ctor.setAccessible(true);

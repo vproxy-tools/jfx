@@ -41,6 +41,7 @@ final class Platform {
         if (type == null) {
 
             // Provide for a runtime override, allowing EGL for example
+            com.sun.javafx.tk.godot.GodotLibraries.selectBackend();
             String userPlatform = System.getProperty("glass.platform");
 
             if (userPlatform != null) {

@@ -192,7 +192,12 @@ public abstract class Toolkit {
         throw new UnsupportedOperationException(System.getProperty("os.name") + " is not supported");
     }
 
-    public static synchronized Toolkit getToolkit() {
+    public static Toolkit getToolkit() {
+        com.sun.javafx.tk.godot.GodotBootstrap.ensureInitialized();
+        return getInitializedToolkit();
+    }
+
+    private static synchronized Toolkit getInitializedToolkit() {
         if (TOOLKIT != null) {
             return TOOLKIT;
         }

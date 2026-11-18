@@ -265,7 +265,9 @@ public final class QuantumToolkit extends Toolkit {
                 }
             }
         };
-        Runtime.getRuntime().addShutdownHook(shutdownHook);
+        if (!com.sun.javafx.tk.godot.GodotBootstrap.takeShutdownHook(shutdownHook)) {
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+        }
         return true;
     }
 

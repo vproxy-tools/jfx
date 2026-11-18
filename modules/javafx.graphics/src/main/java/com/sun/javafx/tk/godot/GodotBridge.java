@@ -21,6 +21,14 @@ public final class GodotBridge {
     /** The pipeline's worker is daemonized by Quantum; the host must drain it before stopping JNI admission. */
     public static void registerRenderThread(Thread thread) { renderThread = thread; }
 
+    static void awaitRendererShutdown() throws InterruptedException {
+        Thread renderer = renderThread;
+        if (renderer != null && renderer != Thread.currentThread()) {
+            renderer.join(5000);
+            if (renderer.isAlive()) throw new IllegalStateException("Timed out draining the Godot renderer");
+        }
+    }
+
     /** Returns false for bounded-queue backpressure; retries must keep sequence. */
     public static native boolean submit(ByteBuffer frame, int byteLength);
 
@@ -121,6 +129,12 @@ public final class GodotBridge {
 
     // Invoked through JNI on the JVM bootstrap thread, never the Godot thread.
     public static void launch(String mainClass) throws Throwable {
+        // JNI-attached threads start with the bootstrap context loader.
+        // Application.launch() and FXML resolve application classes through it.
+        if (Thread.currentThread().getContextClassLoader() == null) {
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+        }
+        GodotBootstrap.existingHost();
         Thread stopWatcher = new Thread(() -> {
             long tick = 0;
             while ((tick = awaitTick(tick, 1000)) >= 0) { }

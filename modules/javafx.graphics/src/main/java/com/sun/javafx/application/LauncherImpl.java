@@ -647,6 +647,7 @@ public class LauncherImpl {
     }
 
     private static void startToolkit() throws InterruptedException {
+        com.sun.javafx.tk.godot.GodotBootstrap.ensureInitialized();
         if (toolkitStarted.getAndSet(true)) {
             return;
         }

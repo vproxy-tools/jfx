@@ -178,6 +178,7 @@ public class PlatformImpl {
             throw new IllegalStateException("Platform.exit has been called");
         }
 
+        com.sun.javafx.tk.godot.GodotBootstrap.ensureInitialized();
         if (initialized.getAndSet(true)) {
             if (preventDuplicateCalls) {
                 throw new IllegalStateException("Toolkit already initialized");
@@ -190,11 +191,15 @@ public class PlatformImpl {
 
         final Module module = PlatformImpl.class.getModule();
         final ModuleDescriptor moduleDesc = module.getDescriptor();
-        if (!module.isNamed()
+        // A Shadow application loads this distribution and its verified platform
+        // libraries in the unnamed module of the application's class loader.
+        boolean packagedGodot = !module.isNamed()
+                && com.sun.javafx.tk.godot.GodotLibraries.usesPackagedLibraries();
+        if (!packagedGodot && (!module.isNamed()
                 || !"javafx.graphics".equals(module.getName())
                 || moduleDesc == null
                 || moduleDesc.isAutomatic()
-                || moduleDesc.isOpen()) {
+                || moduleDesc.isOpen())) {
 
             String warningStr = "Unsupported JavaFX configuration: "
                 + "classes were loaded from '" + module + "'";

@@ -25,12 +25,12 @@
 package com.sun.glass.utils;
 
 import com.sun.javafx.PlatformUtil;
+import com.sun.javafx.tk.godot.GodotLibraries;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.net.URI;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -110,6 +110,21 @@ public class NativeLibLoader {
     }
 
     private static void loadLibraryInternal(String libraryName, List<String> dependencies, Class caller) {
+        var distributed = GodotLibraries.library(libraryName);
+        if (distributed != null) {
+            if (dependencies != null) {
+                for (String dependency : dependencies) loadLibrary(dependency);
+            }
+            System.load(distributed.toString());
+            return;
+        }
+        if (GodotLibraries.usesPackagedLibraries()) {
+            if (dependencies != null) {
+                for (String dependency : dependencies) packagedLibrary(dependency, caller);
+            }
+            System.load(packagedLibrary(libraryName, caller));
+            return;
+        }
         // The search order for native library loading is:
         // - try to load the native library from either ${java.home}
         //   (for jlinked javafx modules) or from the same folder as
@@ -227,14 +242,53 @@ public class NativeLibLoader {
         return false;
     }
 
+    /** Godot needs the actual loaded library path for the embedded engine's argv[0]. */
+    public static synchronized String loadGodotEngine() {
+        Path external = GodotLibraries.library("godot");
+        String file = external == null ? packagedLibrary("godot", NativeLibLoader.class) : external.toString();
+        System.load(file);
+        return file;
+    }
+
+    private static String packagedLibrary(String library, Class<?> caller) {
+        String name = "/" + System.mapLibraryName(library);
+        try (InputStream is = caller.getResourceAsStream(name)) {
+            if (is == null) throw new UnsatisfiedLinkError("Missing native library in platform artifact: " + name);
+            return cacheLibrary(is, name, caller, PackagedBuild.ID);
+        } catch (IOException cause) {
+            throw (UnsatisfiedLinkError)new UnsatisfiedLinkError("Cannot cache " + name).initCause(cause);
+        }
+    }
+
+    private static final class PackagedBuild {
+        static final String ID = readId();
+        static String readId() {
+            try (var in = NativeLibLoader.class.getResourceAsStream("/META-INF/godot-jfx/natives.id")) {
+                if (in == null) throw new UnsatisfiedLinkError("Missing godot-jfx native artifact identifier");
+                String id = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.US_ASCII).trim();
+                if (!id.matches("[0-9a-f]{64}")) throw new UnsatisfiedLinkError("Invalid godot-jfx native artifact identifier");
+                return id;
+            } catch (IOException ex) {
+                throw new java.io.UncheckedIOException(ex);
+            }
+        }
+    }
+
     private static String cacheLibrary(InputStream is, String name, Class caller) throws IOException {
+        return cacheLibrary(is, name, caller, null);
+    }
+
+    private static String cacheLibrary(InputStream is, String name, Class caller, String build) throws IOException {
         String jfxVersion = System.getProperty("javafx.runtime.version", "versionless");
         // This fixes an issue with windows - ":" is not allowed for file on Windows.
         jfxVersion = jfxVersion.replace(":", "-");
         String userCache = System.getProperty("javafx.cachedir", "");
         String arch = System.getProperty("os.arch");
+        if (build != null) jfxVersion = "godot-jfx/" + build;
         if (userCache.isEmpty()) {
             userCache = System.getProperty("user.home") + "/.openjfx/cache/" + jfxVersion + "/" + arch;
+        } else if (build != null) {
+            userCache = Path.of(userCache, "godot-jfx", build, arch).toString();
         }
         File cacheDir = new File(userCache);
         boolean cacheDirOk = true;
@@ -244,7 +298,7 @@ public class NativeLibLoader {
                 cacheDirOk = false;
             }
         } else {
-            if (!cacheDir.mkdirs()) {
+            if (!cacheDir.mkdirs() && !cacheDir.isDirectory()) {
                 System.err.println("Can not create cache at "+cacheDir);
                 cacheDirOk = false;
             }
@@ -263,60 +317,36 @@ public class NativeLibLoader {
                     throw new IOException("Cache exists but is not a directory: "+cacheDir);
                 }
             } else {
-                if (!cacheDir.mkdirs()) {
+                if (!cacheDir.mkdirs() && !cacheDir.isDirectory()) {
                     throw new IOException("Can not create cache at "+cacheDir);
                 }
             }
         }
-        // we have a cache directory. Add the file here
-        File f = new File(cacheDir, name);
-        // if it exists, calculate checksum and keep if same as inputstream.
-        boolean write = true;
-        if (f.exists()) {
-            byte[] isHash;
-            byte[] fileHash;
-            try {
-                DigestInputStream dis = new DigestInputStream(is, MessageDigest.getInstance("MD5"));
-                dis.getMessageDigest().reset();
-                byte[] buffer = new byte[4096];
-                while (dis.read(buffer) != -1) { /* empty loop body is intentional */ }
-                isHash = dis.getMessageDigest().digest();
-                is.close();
-                is = caller.getResourceAsStream(name); // mark/reset not supported, we have to reread
-            }
-            catch (NoSuchAlgorithmException nsa) {
-                isHash = new byte[1];
-            }
-            fileHash = calculateCheckSum(f);
-            if (!Arrays.equals(isHash, fileHash)) {
-                Files.delete(f.toPath());
-            } else {
-                // hashes are the same, we already have the file.
-                write = false;
-            }
-        }
-        if (write) {
-            Path path = f.toPath();
-            File lockFile = new File(cacheDir, ".lock");
-            try (RandomAccessFile randomAccessFile = new RandomAccessFile(lockFile, "rw");
-                 FileChannel fileChannel = randomAccessFile.getChannel();
-                 FileLock fileLock = fileChannel.lock()) {
+        Path target = cacheDir.toPath().resolve(name.substring(1));
+        try (is;
+             FileChannel channel = FileChannel.open(cacheDir.toPath().resolve(".lock"),
+                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+             FileLock lock = channel.lock()) {
+            if (Files.isRegularFile(target)) {
                 try {
-                    if (!Files.exists(path)) {
-                        Files.copy(is, path);
+                    MessageDigest digest = MessageDigest.getInstance("MD5");
+                    new DigestInputStream(is, digest).transferTo(java.io.OutputStream.nullOutputStream());
+                    if (Arrays.equals(digest.digest(), calculateCheckSum(target.toFile()))) {
+                        return target.toAbsolutePath().toString();
                     }
-                } finally {
-                    if (fileLock != null) {
-                        fileLock.release();
-                    }
+                } catch (NoSuchAlgorithmException ex) {
+                    throw new IOException(ex);
                 }
-            } catch (IOException ex) {
-                throw new IOException("Error copying library " + path + " to cache: " + ex.getMessage(), ex);
+            }
+            Path temp = Files.createTempFile(cacheDir.toPath(), "native-", ".tmp");
+            try (InputStream source = caller.getResourceAsStream(name)) {
+                Files.copy(source, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                Files.deleteIfExists(temp);
             }
         }
-
-        String fp = f.getAbsolutePath();
-        return fp;
+        return target.toAbsolutePath().toString();
     }
 
     static byte[] calculateCheckSum(File file) {
