@@ -24,8 +24,6 @@ public final class GodotBootstrap {
     }
 
     private static Options resolve(Options options) {
-        Path directory = options != null && options.runtimeDirectory() != null
-                ? GodotLibraries.absolute(options.runtimeDirectory()) : GodotLibraries.defaultRoot();
         String configuredProject = System.getProperty("javafx.godot.project");
         Path project = options != null && options.project() != null ? options.project()
                 : configuredProject == null ? null : Path.of(configuredProject);
@@ -34,7 +32,7 @@ public final class GodotBootstrap {
         if (!renderer.equals("mobile") && !renderer.equals("gl_compatibility")) {
             throw new IllegalArgumentException("Unsupported Godot renderer: " + renderer);
         }
-        return new Options(directory, project, renderer,
+        return new Options(project, renderer,
                 options != null && options.startupWindow() != null ? options.startupWindow() : StartupWindow.HIDDEN);
     }
 
@@ -56,7 +54,6 @@ public final class GodotBootstrap {
                 try {
                     requested = resolve(options);
                     effective = requested;
-                    GodotLibraries.bind(effective.runtimeDirectory());
                     engine = GodotEngine.forPlatform();
                     Runtime.getRuntime().addShutdownHook(new Thread(GodotBootstrap::shutdown, "Godot shutdown"));
                     engine.start(effective, GodotBootstrap::ready, GodotBootstrap::finished);
@@ -90,18 +87,10 @@ public final class GodotBootstrap {
         }
     }
 
-    // Called by GodotBridge on the EXE host's JVM worker before application code.
-    static void existingHost() {
+    // A scene fixture has already started this process's packaged engine.
+    static void fixtureReady() {
         synchronized (lock) {
             if (state != State.NEW) throw new IllegalStateException("Godot host already selected");
-            GodotLibraries.existingHost();
-            String sdk = System.getProperty("javafx.godot.host.sdk");
-            if (sdk != null) {
-                effective = new Options(Path.of(sdk).toAbsolutePath().normalize(),
-                        Path.of(System.getProperty("javafx.godot.host.project")).toAbsolutePath().normalize(),
-                        System.getProperty("javafx.godot.host.renderer"),
-                        StartupWindow.valueOf(System.getProperty("javafx.godot.host.startup")));
-            }
             state = State.READY;
         }
     }
@@ -115,10 +104,8 @@ public final class GodotBootstrap {
     }
 
     private static void fail(Throwable cause) {
-        String location = effective == null || effective.runtimeDirectory() == null ? "packaged native libraries"
-                : GodotLibraries.libraryAt(effective.runtimeDirectory(), "godot").toString();
         failure = new IllegalStateException("Godot initialization/lifecycle failed on " + System.getProperty("os.name")
-                + " " + System.getProperty("os.arch") + " at " + location + ": " + cause.getMessage(), cause);
+                + " " + System.getProperty("os.arch") + " using packaged native libraries: " + cause.getMessage(), cause);
         state = State.FAILED;
         lock.notifyAll();
     }
@@ -152,7 +139,7 @@ public final class GodotBootstrap {
                         .start(com.sun.javafx.application.PlatformImpl::tkExit);
                 fxShutdown.join(3000);
                 dispose.run();
-                GodotBridge.awaitRendererShutdown();
+                GodotBridge.awaitRendererShutdown(5000);
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();

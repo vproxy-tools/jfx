@@ -14,10 +14,10 @@ public final class GodotRuntime {
 
     /**
      * Startup configuration. The default host uses packaged native libraries
-     * and an empty scene tree. Applications can explicitly choose an external
-     * native runtime or an imported Godot project directory or PCK file.
+     * and an empty scene tree. A scene project can be supplied as an imported
+     * directory or a PCK file.
      */
-    public record Options(Path runtimeDirectory, Path project, String renderer, StartupWindow startupWindow) {}
+    public record Options(Path project, String renderer, StartupWindow startupWindow) {}
 
     /** Prepares the default host, or reuses the host already selected. */
     public static void init() {

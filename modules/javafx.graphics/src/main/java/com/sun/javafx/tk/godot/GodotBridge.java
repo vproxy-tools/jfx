@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0 */
 package com.sun.javafx.tk.godot;
 
-import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
-import javafx.application.Platform;
 
 /** Internal batch boundary. Native methods are registered by the Godot host. */
 public final class GodotBridge {
@@ -21,10 +19,10 @@ public final class GodotBridge {
     /** The pipeline's worker is daemonized by Quantum; the host must drain it before stopping JNI admission. */
     public static void registerRenderThread(Thread thread) { renderThread = thread; }
 
-    static void awaitRendererShutdown() throws InterruptedException {
+    static void awaitRendererShutdown(long timeoutMillis) throws InterruptedException {
         Thread renderer = renderThread;
         if (renderer != null && renderer != Thread.currentThread()) {
-            renderer.join(5000);
+            renderer.join(timeoutMillis);
             if (renderer.isAlive()) throw new IllegalStateException("Timed out draining the Godot renderer");
         }
     }
@@ -81,7 +79,7 @@ public final class GodotBridge {
     public static native long[] nativeWindowInfo(long id);
     public static native long nativeWindowAck();
     /** True when all admitted host/window/render commands have completed on Godot. */
-    private static native boolean isShutdownDrained();
+    static native boolean isShutdownDrained();
 
     /** Drains ordered input records: kind, button, x/y, screen x/y, modifiers, wheel x/y. */
     public static native double[] pollInput();
@@ -124,49 +122,6 @@ public final class GodotBridge {
         } catch (Throwable failure) {
             com.sun.glass.ui.Application.reportException(failure);
             return 0;
-        }
-    }
-
-    // Invoked through JNI on the JVM bootstrap thread, never the Godot thread.
-    public static void launch(String mainClass) throws Throwable {
-        // JNI-attached threads start with the bootstrap context loader.
-        // Application.launch() and FXML resolve application classes through it.
-        if (Thread.currentThread().getContextClassLoader() == null) {
-            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-        }
-        GodotBootstrap.existingHost();
-        Thread stopWatcher = new Thread(() -> {
-            long tick = 0;
-            while ((tick = awaitTick(tick, 1000)) >= 0) { }
-            Platform.exit();
-        }, "Godot JavaFX shutdown watcher");
-        stopWatcher.setDaemon(true);
-        stopWatcher.start();
-        try {
-            Class.forName(mainClass).getMethod("main", String[].class)
-                    .invoke(null, (Object) new String[0]);
-            Thread renderer = renderThread;
-            if (renderer != null && renderer != Thread.currentThread()) renderer.join();
-        } catch (Throwable exception) {
-            Throwable original = exception instanceof InvocationTargetException invocation ? invocation.getCause() : exception;
-            try {
-                // Keep JNI queues open while FX hides windows and the renderer
-                // disposes their targets. Only then report the original failure
-                // to the native worker, which closes queue admission.
-                Platform.exit();
-                Thread renderer = renderThread;
-                if (renderer != null && renderer != Thread.currentThread()) {
-                    renderer.join(10_000);
-                    if (renderer.isAlive()) throw new IllegalStateException("Renderer did not stop after application failure");
-                }
-                long tick = 0, deadline = System.nanoTime()+10_000_000_000L;
-                while (!isShutdownDrained()) {
-                    if (System.nanoTime()>deadline) throw new IllegalStateException("Godot failure cleanup did not drain");
-                    tick=awaitTick(tick,100);
-                    if (tick<0) throw new IllegalStateException("Godot stopped before failure cleanup drained");
-                }
-            } catch (Throwable cleanup) { original.addSuppressed(cleanup); }
-            throw original;
         }
     }
 }

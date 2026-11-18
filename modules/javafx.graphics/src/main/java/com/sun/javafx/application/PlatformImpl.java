@@ -194,7 +194,7 @@ public class PlatformImpl {
         // A Shadow application loads this distribution and its verified platform
         // libraries in the unnamed module of the application's class loader.
         boolean packagedGodot = !module.isNamed()
-                && com.sun.javafx.tk.godot.GodotLibraries.usesPackagedLibraries();
+                && com.sun.javafx.tk.godot.GodotLibraries.selectBackend();
         if (!packagedGodot && (!module.isNamed()
                 || !"javafx.graphics".equals(module.getName())
                 || moduleDesc == null

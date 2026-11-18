@@ -110,15 +110,7 @@ public class NativeLibLoader {
     }
 
     private static void loadLibraryInternal(String libraryName, List<String> dependencies, Class caller) {
-        var distributed = GodotLibraries.library(libraryName);
-        if (distributed != null) {
-            if (dependencies != null) {
-                for (String dependency : dependencies) loadLibrary(dependency);
-            }
-            System.load(distributed.toString());
-            return;
-        }
-        if (GodotLibraries.usesPackagedLibraries()) {
+        if (GodotLibraries.selectBackend()) {
             if (dependencies != null) {
                 for (String dependency : dependencies) packagedLibrary(dependency, caller);
             }
@@ -244,8 +236,7 @@ public class NativeLibLoader {
 
     /** Godot needs the actual loaded library path for the embedded engine's argv[0]. */
     public static synchronized String loadGodotEngine() {
-        Path external = GodotLibraries.library("godot");
-        String file = external == null ? packagedLibrary("godot", NativeLibLoader.class) : external.toString();
+        String file = packagedLibrary("godot", NativeLibLoader.class);
         System.load(file);
         return file;
     }
