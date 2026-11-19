@@ -611,8 +611,10 @@ public final class QuantumToolkit extends Toolkit {
             } else {
                 animationRunning.set(false);
             }
-            firePulse();
-            if (collect) collector.renderAll();
+            // An animation callback or pulse listener may call Platform.exit()
+            // and dispose Glass synchronously on this thread.
+            if (toolkitRunning.get()) firePulse();
+            if (collect && toolkitRunning.get()) collector.renderAll();
         } finally {
             inPulse--;
             if (PULSE_LOGGING_ENABLED) {
