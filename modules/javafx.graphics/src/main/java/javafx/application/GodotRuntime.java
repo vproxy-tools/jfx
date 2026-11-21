@@ -15,9 +15,11 @@ public final class GodotRuntime {
     /**
      * Startup configuration. The default host uses packaged native libraries
      * and an empty scene tree. A scene project can be supplied as an imported
-     * directory or a PCK file.
+     * directory or a PCK file. A null driver uses the javafx.godot.driver
+     * property, then the platform default. Windows accepts d3d12 (default),
+     * vulkan and opengl. macOS accepts metal (default) and opengl.
      */
-    public record Options(Path project, String renderer, StartupWindow startupWindow) {}
+    public record Options(Path project, String driver, StartupWindow startupWindow) {}
 
     /** Prepares the default host, or reuses the host already selected. */
     public static void init() {

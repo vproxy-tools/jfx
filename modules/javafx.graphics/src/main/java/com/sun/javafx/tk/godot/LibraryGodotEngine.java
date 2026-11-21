@@ -66,7 +66,7 @@ final class LibraryGodotEngine implements GodotEngine {
             ready.run();
         };
         run(GodotBridge.class, publish, library, project == null ? null : project.toString(), !directory,
-                config.renderer(), config.startupWindow().name().toLowerCase(Locale.ROOT),
+                config.driver(), config.startupWindow().name().toLowerCase(Locale.ROOT),
                 Boolean.getBoolean("javafx.godot.disableVsync"),
                 Integer.parseInt(System.getProperty("javafx.godot.maxFps", "0")),
                 Boolean.getBoolean("javafx.godot.verbose"));
@@ -85,5 +85,5 @@ final class LibraryGodotEngine implements GodotEngine {
     private static native void requestStop();
     private static native void mountScenePack(byte[] contents);
     private static native void run(Class<?> bridge, Runnable ready, String library,
-            String project, boolean pack, String renderer, String startup, boolean disableVsync, int maxFps, boolean verbose);
+            String project, boolean pack, String driver, String startup, boolean disableVsync, int maxFps, boolean verbose);
 }

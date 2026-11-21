@@ -28,12 +28,29 @@ public final class GodotBootstrap {
         Path project = options != null && options.project() != null ? options.project()
                 : configuredProject == null ? null : Path.of(configuredProject);
         if (project != null) project = GodotLibraries.absolute(project);
-        String renderer = options != null && options.renderer() != null ? options.renderer() : "mobile";
-        if (!renderer.equals("mobile") && !renderer.equals("gl_compatibility")) {
-            throw new IllegalArgumentException("Unsupported Godot renderer: " + renderer);
+        String driver = resolveDriver(options == null ? null : options.driver());
+        StartupWindow startup = options == null ? null : options.startupWindow();
+        if (startup == null) {
+            String configured = System.getProperty("javafx.godot.startupWindow", "hidden");
+            startup = switch (configured) {
+                case "hidden" -> StartupWindow.HIDDEN;
+                case "logo" -> StartupWindow.LOGO;
+                case "normal" -> StartupWindow.NORMAL;
+                default -> throw new IllegalArgumentException("Invalid javafx.godot.startupWindow: " + configured);
+            };
         }
-        return new Options(project, renderer,
-                options != null && options.startupWindow() != null ? options.startupWindow() : StartupWindow.HIDDEN);
+        return new Options(project, driver, startup);
+    }
+
+    static String resolveDriver(String requested) {
+        boolean windows = com.sun.javafx.PlatformUtil.isWindows();
+        String driver = requested != null ? requested
+                : System.getProperty("javafx.godot.driver", windows ? "d3d12" : "metal");
+        if (driver.equals("opengl") || (windows ? driver.equals("d3d12") || driver.equals("vulkan") : driver.equals("metal"))) {
+            return driver;
+        }
+        throw new IllegalArgumentException("Invalid javafx.godot.driver: " + driver
+                + " (expected " + (windows ? "d3d12, vulkan or opengl" : "metal or opengl") + ")");
     }
 
     public static void initialize(Options options) {
