@@ -2,6 +2,7 @@
 package javafx.application;
 
 import com.sun.javafx.tk.godot.GodotBootstrap;
+import com.sun.javafx.tk.godot.GodotBridge;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -29,6 +30,24 @@ public final class GodotRuntime {
     /** Prepares the host before Toolkit startup. Conflicting settings are rejected. */
     public static void init(Options options) {
         GodotBootstrap.initialize(Objects.requireNonNull(options));
+    }
+
+    /**
+     * Queues a named integer message from the FX Application Thread. The root of the
+     * current Godot scene must implement {@code on_javafx_message(topic, value)}.
+     * The host selects the scene when draining its FIFO and schedules that method
+     * on the Godot main thread. Returning means the queue accepted the message.
+     * The topic must contain 1 to 128 UTF-16 code units.
+     */
+    public static void postSceneMessage(String topic, int value) {
+        if (!Platform.isFxApplicationThread() || !PRISM_GODOT_ENABLED) {
+            throw new IllegalStateException("Scene messages require the Godot backend and the FX Application Thread");
+        }
+        Objects.requireNonNull(topic, "topic");
+        if (topic.isEmpty() || topic.length() > 128) {
+            throw new IllegalArgumentException("Scene message topic length must be 1 to 128");
+        }
+        GodotBridge.hostCommand(28, value, 0, topic);
     }
 
     private GodotRuntime() {}
