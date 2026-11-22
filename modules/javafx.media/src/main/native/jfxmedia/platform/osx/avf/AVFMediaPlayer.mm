@@ -56,10 +56,10 @@ static void *AVFMediaPlayerItemTracksContext = &AVFMediaPlayerItemTracksContext;
 // list to AVFoundation will use one of them and no video issue is no longer
 // reproducible. We will still have fallback to FALLBACK_VO_FORMAT even if it
 // is in the list of prefered formats.
-// Uncomment to force list of supported formats by JavaFX.
+// Prefer planar output so GPU video textures can sample Y, Cb and Cr without expanding to BGRA.
 // Note: This array should match CVVideoFrame::IsFormatSupported().
-#define VO_FORMATS @{(id)kCVPixelBufferPixelFormatTypeKey: @[@(kCVPixelFormatType_422YpCbCr8),\
-                                                           @(kCVPixelFormatType_420YpCbCr8Planar),\
+#define VO_FORMATS @{(id)kCVPixelBufferPixelFormatTypeKey: @[@(kCVPixelFormatType_420YpCbCr8Planar),\
+                                                           @(kCVPixelFormatType_422YpCbCr8),\
                                                            @(kCVPixelFormatType_32BGRA)]}
 // Uncomment to let AVFoundation decide the format...
 //#define VO_FORMATS @{}
@@ -396,7 +396,9 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink,
 
 - (void) setCurrentTime:(double)time
 {
-    [self.player seekToTime:CMTimeMakeWithSeconds(time, 600)];
+    // A paused JavaFX seek must reach the requested time even between keyframes.
+    [self.player seekToTime:CMTimeMakeWithSeconds(time, 600)
+            toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
     if (previousPlayerState == kPlayerState_FINISHED) {
         [self play];
     }

@@ -25,6 +25,7 @@
 
 #import "CVVideoFrame.h"
 #include <Utils/ColorConverter.h>
+#include <new>
 
 OSType gLastFormat = -1;
 
@@ -135,6 +136,7 @@ void CVVideoFrame::PrepareChunky()
     bool bValid = true; // CalcSize() requires bValid to be true when called
     m_pulPlaneSize[0] = CalcSize(m_puiPlaneStrides[0], m_uiEncodedHeight, &bValid);
     if (!bValid) {
+        CVPixelBufferUnlockBaseAddress(m_pixelBuffer, kCVPixelBufferLock_ReadOnly);
         throw "CVVideoFrame: Invalid frame size";
     }
 }
@@ -157,6 +159,7 @@ void CVVideoFrame::PreparePlanar()
         unsigned long ulHeightOfPlane = (unsigned long)CVPixelBufferGetHeightOfPlane(m_pixelBuffer, index);
         m_pulPlaneSize[index] = CalcSize(ulHeightOfPlane, m_puiPlaneStrides[index], &bValid);
         if (!bValid) {
+            CVPixelBufferUnlockBaseAddress(m_pixelBuffer, kCVPixelBufferLock_ReadOnly);
             throw "CVVideoFrame: Invalid frame size";
         }
         m_pvPlaneData[index] = CVPixelBufferGetBaseAddressOfPlane(m_pixelBuffer, index);
@@ -180,29 +183,42 @@ void CVVideoFrame::Dispose()
 
 CVideoFrame *CVVideoFrame::ConvertToFormat(FrameType type)
 {
-    if (YCbCr_422 == m_typeFrame && BGRA_PRE == type) {
-        CVPixelBufferRef destPixelBuffer = NULL;
-        if (kCVReturnSuccess == CVPixelBufferCreate(NULL, m_uiEncodedWidth, m_uiEncodedHeight,
-                                                   k32BGRAPixelFormat, NULL, &destPixelBuffer)) {
-            if (kCVReturnSuccess == CVPixelBufferLockBaseAddress(destPixelBuffer, 0)) {
-                uint8_t* bgra = (uint8_t*)CVPixelBufferGetBaseAddress(destPixelBuffer);
-                int32_t bgraStride = (int32_t)CVPixelBufferGetBytesPerRow(destPixelBuffer);
-                uint8_t* srcData = (uint8_t*)m_pvPlaneData[0];
-
-                if (0 == ColorConvert_YCbCr422p_to_BGRA32_no_alpha(bgra,
-                                                                  bgraStride,
-                                                                  m_uiEncodedWidth,
-                                                                  m_uiEncodedHeight,
-                                                                  srcData + 1,
-                                                                  srcData + 2,
-                                                                  srcData,
-                                                                  m_puiPlaneStrides[0],
-                                                                  m_puiPlaneStrides[0])) {
-                    return new CVVideoFrame(destPixelBuffer, m_dTime, m_frameHostTime);
-                }
-            }
-        }
+    if (type != BGRA_PRE || (m_typeFrame != YCbCr_422 && m_typeFrame != YCbCr_420p)) {
+        return NULL;
     }
 
-    return NULL;
+    CVPixelBufferRef destination = NULL;
+    if (CVPixelBufferCreate(NULL, m_uiWidth, m_uiHeight, k32BGRAPixelFormat, NULL, &destination) != kCVReturnSuccess) {
+        return NULL;
+    }
+    if (CVPixelBufferLockBaseAddress(destination, 0) != kCVReturnSuccess) {
+        CVPixelBufferRelease(destination);
+        return NULL;
+    }
+
+    uint8_t *bgra = (uint8_t *)CVPixelBufferGetBaseAddress(destination);
+    int32_t stride = (int32_t)CVPixelBufferGetBytesPerRow(destination);
+    const uint8_t *source = (const uint8_t *)m_pvPlaneData[0];
+    int status;
+    if (m_typeFrame == YCbCr_420p) {
+        // PreparePlanar exposes the planes in JavaFX order: Y, Cr, Cb.
+        status = ColorConvert_YCbCr420p_to_BGRA32_no_alpha(bgra, stride, m_uiWidth, m_uiHeight,
+                source, (const uint8_t *)m_pvPlaneData[1], (const uint8_t *)m_pvPlaneData[2],
+                m_puiPlaneStrides[0], m_puiPlaneStrides[1], m_puiPlaneStrides[2]);
+    } else {
+        status = ColorConvert_YCbCr422p_to_BGRA32_no_alpha(bgra, stride, m_uiWidth, m_uiHeight,
+                source + 1, source + 2, source, m_puiPlaneStrides[0], m_puiPlaneStrides[0]);
+    }
+    CVPixelBufferUnlockBaseAddress(destination, 0);
+
+    CVVideoFrame *converted = NULL;
+    if (status == 0) {
+        try {
+            converted = new (std::nothrow) CVVideoFrame(destination, m_dTime, m_frameHostTime);
+        } catch (const char *) {
+            // The new frame could not acquire the buffer's read lock.
+        }
+    }
+    CVPixelBufferRelease(destination);
+    return converted;
 }
