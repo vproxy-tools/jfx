@@ -7,6 +7,17 @@ import static com.sun.glass.events.KeyEvent.*;
 final class GodotKeyMap {
     private GodotKeyMap() {}
 
+    static int robotKey(int glass) {
+        if (glass != VK_UNDEFINED) {
+            for (int key = 32; key <= 126; key++) if (glassKey(key) == glass) return key;
+            for (int special = 1; special <= 0x8f; special++) {
+                int key = (1 << 22) | special;
+                if (glassKey(key) == glass) return key;
+            }
+        }
+        throw new UnsupportedOperationException("Unmapped Wayland Robot key: " + glass);
+    }
+
     static int glassKey(int key) {
         if ((key & (1 << 22)) == 0) {
             if (key >= 'A' && key <= 'Z' || key >= '0' && key <= '9') return key;

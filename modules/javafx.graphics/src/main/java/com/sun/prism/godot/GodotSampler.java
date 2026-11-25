@@ -7,20 +7,30 @@ import java.util.regex.Pattern;
 
 /** Exact Prism level-zero sampling, including transparent bilinear borders. */
 final class GodotSampler {
+    // Wrap and filter flags use the same immutable integer shader constants.
+    private static final GodotShader.Constant ZERO = integerFlag(0);
+    private static final GodotShader.Constant ONE = integerFlag(1);
+    private static final GodotShader.Constant TWO = integerFlag(2);
+
+    private static GodotShader.Constant integerFlag(int value) {
+        return new GodotShader.Constant(true, 1, false, new int[]{value});
+    }
+
     static GodotShader.Snapshot bind(GodotShader.Snapshot original, GodotTexture[] textures) {
+        if (original.samplerUnits().isEmpty()) return original;
         String source = GodotShaderSourceCache.adapt(original.source(), original.samplerUnits(), () -> adaptSource(original));
         var constants = new LinkedHashMap<>(original.constants());
         for (var entry : original.samplerUnits().entrySet()) {
             String name = entry.getKey(), prefix = "godot_sample_" + name;
             Texture texture = textures[entry.getValue()];
             if (texture == null) throw new IllegalStateException("Unbound sampler: " + name);
-            int wrap = switch (texture.getWrapMode()) {
-                case CLAMP_TO_ZERO -> 1;
-                case REPEAT -> 2;
-                default -> 0; // Simulated modes already include their guard texels.
+            var wrap = switch (texture.getWrapMode()) {
+                case CLAMP_TO_ZERO -> ONE;
+                case REPEAT -> TWO;
+                default -> ZERO; // Simulated modes already include their guard texels.
             };
-            constants.put(prefix + "_wrap", new GodotShader.Constant(true,1,false,new int[]{wrap}));
-            constants.put(prefix + "_linear", new GodotShader.Constant(true,1,false,new int[]{texture.getLinearFiltering() ? 1 : 0}));
+            constants.put(prefix + "_wrap", wrap);
+            constants.put(prefix + "_linear", texture.getLinearFiltering() ? ONE : ZERO);
         }
         return new GodotShader.Snapshot(source,original.samplerUnits(),constants);
     }

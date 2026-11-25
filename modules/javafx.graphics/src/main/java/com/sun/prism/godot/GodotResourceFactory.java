@@ -105,6 +105,10 @@ public final class GodotResourceFactory extends BaseShaderFactory {
     @Override public Presentable createPresentable(PresentableState state) {
         return new GodotPresentable(context, state);
     }
+    public GodotShader createShader(GodotShader.Program program) {
+        return new GodotShader(program, context::selectShader);
+    }
+
     @Override public Shader createShader(String name, InputStream stream, Map<String,Integer> samplers,
             Map<String,Integer> params, int maxTexCoord, boolean pixcoord, boolean vertexColor) {
         if (stream != null) {

@@ -44,13 +44,15 @@ public final class GodotBootstrap {
 
     static String resolveDriver(String requested) {
         boolean windows = com.sun.javafx.PlatformUtil.isWindows();
+        boolean linux = com.sun.javafx.PlatformUtil.isLinux();
         String driver = requested != null ? requested
-                : System.getProperty("javafx.godot.driver", windows ? "d3d12" : "metal");
-        if (driver.equals("opengl") || (windows ? driver.equals("d3d12") || driver.equals("vulkan") : driver.equals("metal"))) {
+                : System.getProperty("javafx.godot.driver", windows ? "d3d12" : linux ? "vulkan" : "metal");
+        if (driver.equals("opengl") || (windows || linux) && driver.equals("vulkan")
+                || windows && driver.equals("d3d12") || !windows && !linux && driver.equals("metal")) {
             return driver;
         }
         throw new IllegalArgumentException("Invalid javafx.godot.driver: " + driver
-                + " (expected " + (windows ? "d3d12, vulkan or opengl" : "metal or opengl") + ")");
+                + " (expected " + (windows ? "d3d12, vulkan or opengl" : linux ? "vulkan or opengl" : "metal or opengl") + ")");
     }
 
     public static void initialize(Options options) {

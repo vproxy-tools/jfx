@@ -2,6 +2,8 @@
 package com.sun.prism.godot;
 
 import com.sun.glass.ui.Screen;
+import com.sun.javafx.PlatformUtil;
+import com.sun.javafx.tk.godot.GodotBridge;
 import com.sun.javafx.geom.Rectangle;
 import com.sun.javafx.geom.transform.BaseTransform;
 import com.sun.javafx.sg.prism.NGCamera;
@@ -30,11 +32,18 @@ public final class GodotContext extends BaseShaderContext {
     private RenderTarget target;
     private boolean needsTargetSelection;
     private GodotShader shader;
+    private float[] localVertices = new float[0];
     private CompositeMode composite = CompositeMode.SRC_OVER;
 	private Rectangle clip;
     private BaseTransform transform = BaseTransform.IDENTITY_TRANSFORM;
 
-    public GodotContext(Screen screen, ShaderFactory factory) { super(screen, factory, 256); }
+    final boolean preferSmallLcdCopies;
+
+    public GodotContext(Screen screen, ShaderFactory factory) {
+        super(screen, factory, 256);
+        preferSmallLcdCopies = PlatformUtil.isLinux() && System.getenv("GODOT_JFX_LCD_REGION_COPY") == null
+                && GodotBridge.prefersSmallLcdCopies();
+    }
 
     // Mirrors the gate in GodotGraphics/GodotShader: the LCD second pass
     // samples the renderer backbuffer instead of the LCDBuffer.
@@ -252,10 +261,39 @@ public final class GodotContext extends BaseShaderContext {
         commands.shaderState(snapshot, handles);
         if (clip == null) commands.clip(false, 0, 0, 0, 0);
         else commands.clip(true, clip.x, clip.y, Math.max(0, clip.width), Math.max(0, clip.height));
+        double tx = transform.getMxt(), ty = transform.getMyt();
+        // Prism batches glyphs and simple translated draws in device coordinates.
+        // Stock shaders only use UVs and colors as local attributes. Carry an exact
+        // integer translation in the draw command so these meshes survive scrolling.
+        if (shader.isStockShader() && transform.isIdentity()) {
+            float originX = (float)Math.floor(coordinates[0]);
+            float originY = (float)Math.floor(coordinates[1]);
+            if ((originX != 0 || originY != 0) && makeLocalVertices(coordinates, vertices, originX, originY)) {
+                coordinates = localVertices;
+                tx = originX;
+                ty = originY;
+            }
+        }
         commands.drawQuads(coordinates, colors, vertices,
-                transform.getMxx(), transform.getMxy(), transform.getMxt(),
-                transform.getMyx(), transform.getMyy(), transform.getMyt(),
+                transform.getMxx(), transform.getMxy(), tx,
+                transform.getMyx(), transform.getMyy(), ty,
                 DRAW_MODULATE ? batchModulation : 1.0f);
+    }
+
+    private boolean makeLocalVertices(float[] coordinates, int vertices, float originX, float originY) {
+        int length = vertices * 7;
+        if (localVertices.length < length) localVertices = new float[length];
+        System.arraycopy(coordinates, 0, localVertices, 0, length);
+        for (int i = 0; i < length; i += 7) {
+            float x = coordinates[i] - originX;
+            float y = coordinates[i + 1] - originY;
+            if ((double)x + originX != coordinates[i] || (double)y + originY != coordinates[i + 1]) {
+                return false;
+            }
+            localVertices[i] = x;
+            localVertices[i + 1] = y;
+        }
+        return true;
     }
 
     @Override public void blit(RTTexture source, RTTexture destination, int sx0, int sy0, int sx1, int sy1,

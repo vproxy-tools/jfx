@@ -5,6 +5,8 @@ import com.sun.glass.ui.Application;
 import com.sun.glass.ui.Clipboard;
 import com.sun.glass.ui.ClipboardAssistance;
 import java.util.HashMap;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 /** Application-local drag data. The system clipboard is never modified. */
 final class GodotDragClipboard extends Clipboard {
@@ -13,6 +15,21 @@ final class GodotDragClipboard extends Clipboard {
         // Clipboard.remove evicts the shared entry when its last assistant
         // closes. A second static cache could retain that detached instance.
         return (GodotDragClipboard) get(DND);
+    }
+
+    // Glass passes an opaque private Wayland MIME value as bytes. The final
+    // byte is a JNI envelope terminator and is removed before the pipe write.
+    static byte[] waylandBytes(String mime, Object value) {
+        final int limit = 16 * 1024 * 1024 - 1;
+        ByteBuffer bytes;
+        if (value instanceof ByteBuffer buffer) bytes = buffer.duplicate();
+        else if (value instanceof byte[] array) bytes = ByteBuffer.wrap(array);
+        else if (value instanceof String text && text.length() <= limit) bytes = StandardCharsets.UTF_8.encode(text);
+        else throw new IllegalArgumentException("Unsupported Wayland drag payload for " + mime);
+        if (bytes.remaining() > limit) throw new IllegalArgumentException("Wayland drag payload exceeds 16 MiB for " + mime);
+        byte[] result = new byte[bytes.remaining() + 1];
+        bytes.get(result, 0, result.length - 1);
+        return result;
     }
 
     /** Publishes externally sourced drag data for target-side reads. Never valid

@@ -10,6 +10,11 @@ public final class GodotBridge {
     public static native String[] dialogPoll();
     public static native void dialogCancel();
     /** Physical desktop coordinates; these calls do not access Godot Nodes. */
+    public static native void waylandRobotOpen();
+    public static native void waylandRobotClose();
+    public static native void waylandRobotButton(int button, boolean pressed);
+    public static native void waylandRobotWheel(int amount);
+    public static native void waylandRobotKey(int code, boolean pressed);
     public static native void robotMove(int x, int y);
     public static native int[] robotPosition();
     public static native int[] robotCapture(int x, int y, int width, int height);
@@ -48,22 +53,70 @@ public final class GodotBridge {
     /** Bounded BGRA_PRE cursor asset; creates/selects it only on the Godot main thread. */
     public static native int customCursor(int width, int height, int x, int y, byte[] bgra);
     public static native long windowIcon(long id, int width, int height, byte[] bgra);
-    public static native void clipboardWriteFormats(String text, byte[] html, byte[] rtf);
-    public static native void clipboardWriteUrlFormats(String text, byte[] html, byte[] rtf, String url);
+    public static void flushLinuxClipboard() {
+        if (LinuxClipboard.wayland instanceof WaylandClipboard clipboard) clipboard.flush();
+    }
+    public static native boolean prefersSmallLcdCopies();
+    static native String[] waylandClipboardTypes();
+    static native byte[] waylandClipboardRead(String name);
+    static native void waylandClipboardWrite(String[] names, byte[][] values);
+
+    public static void clipboardWriteFormats(String text, byte[] html, byte[] rtf) {
+        if (com.sun.javafx.PlatformUtil.isLinux()) LinuxClipboard.write(text, html, rtf, null, null, null, 0, 0, null, null);
+        else clipboardWriteFormatsNative(text, html, rtf);
+    }
+    private static native void clipboardWriteFormatsNative(String text, byte[] html, byte[] rtf);
+    public static void clipboardWriteUrlFormats(String text, byte[] html, byte[] rtf, String url) {
+        if (com.sun.javafx.PlatformUtil.isLinux()) LinuxClipboard.write(text, html, rtf, url, null, null, 0, 0, null, null);
+        else clipboardWriteUrlFormatsNative(text, html, rtf, url);
+    }
+    private static native void clipboardWriteUrlFormatsNative(String text, byte[] html, byte[] rtf, String url);
     /** Full publication: CF_HDROP from file paths, CF_DIB from ARGB pixels and registered
      * custom formats (application/x-godot-custom-* names, NUL-terminated data) join the text formats. */
-    public static native void clipboardWriteFull(String text, byte[] html, byte[] rtf, String url, String[] files, int[] image, int imageWidth, int imageHeight, String[] customNames, byte[][] customData);
-    public static native String clipboardReadUrl();
-    public static native byte[] clipboardReadRich(int kind);
+    public static void clipboardWriteFull(String text, byte[] html, byte[] rtf, String url, String[] files, int[] image, int imageWidth, int imageHeight, String[] customNames, byte[][] customData) {
+        if (com.sun.javafx.PlatformUtil.isLinux()) LinuxClipboard.write(text, html, rtf, url, files, image, imageWidth, imageHeight, customNames, customData);
+        else clipboardWriteFullNative(text, html, rtf, url, files, image, imageWidth, imageHeight, customNames, customData);
+    }
+    private static native void clipboardWriteFullNative(String text, byte[] html, byte[] rtf, String url, String[] files, int[] image, int imageWidth, int imageHeight, String[] customNames, byte[][] customData);
+    public static String clipboardReadUrl() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.url();
+        else return clipboardReadUrlNative();
+    }
+    private static native String clipboardReadUrlNative();
+    public static byte[] clipboardReadRich(int kind) {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.rich(kind);
+        else return clipboardReadRichNative(kind);
+    }
+    private static native byte[] clipboardReadRichNative(int kind);
     /** Reads CF_HDROP as path strings, or null when absent. */
-    public static native String[] clipboardReadFiles();
+    public static String[] clipboardReadFiles() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.files();
+        else return clipboardReadFilesNative();
+    }
+    private static native String[] clipboardReadFilesNative();
     /** Reads CF_DIB as {width, height, ARGB...}, or null when absent. */
-    public static native int[] clipboardReadImage();
+    public static int[] clipboardReadImage() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.image();
+        else return clipboardReadImageNative();
+    }
+    private static native int[] clipboardReadImageNative();
     /** Reads one application/x-godot-custom-* format as NUL-terminated bytes, or null when absent. */
-    public static native byte[] clipboardReadCustom(String name);
+    public static byte[] clipboardReadCustom(String name) {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.customData(name);
+        else return clipboardReadCustomNative(name);
+    }
+    private static native byte[] clipboardReadCustomNative(String name);
     /** Lists present custom clipboard format names (application/x-godot-custom-* convention). */
-    public static native String[] clipboardCustomFormats();
-    public static native int clipboardFormats();
+    public static String[] clipboardCustomFormats() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.customNames();
+        else return clipboardCustomFormatsNative();
+    }
+    private static native String[] clipboardCustomFormatsNative();
+    public static int clipboardFormats() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.formats();
+        else return clipboardFormatsNative();
+    }
+    private static native int clipboardFormatsNative();
 
     /** Ordered native-window operations: 1=create hidden, 2=geometry/visibility, 3=destroy owner tree, 4=property.
      * Flags: 1 borderless, 2 transparent, 4 popup. IDs are positive and never reused.
@@ -90,7 +143,11 @@ public final class GodotBridge {
      */
     public static native double[] pollWindowInputV2();
 
-    public static native String clipboardReadText();
+    public static String clipboardReadText() {
+        if (com.sun.javafx.PlatformUtil.isLinux()) return LinuxClipboard.text();
+        else return clipboardReadTextNative();
+    }
+    private static native String clipboardReadTextNative();
 
     /** Hands the active in-app drag to Windows OLE for cross-application transfer.
      * Effects/buttons use Glass action and (1 << buttonIndex) masks; sourceId is the

@@ -34,15 +34,57 @@ final class GodotRobot extends GlassRobot {
         }
         throw new UnsupportedOperationException("No input robot for this platform: " + os);
     }
-    private final GlassRobot input = createInputRobot();
+    private static final boolean LINUX = com.sun.javafx.PlatformUtil.isLinux();
+    private final GlassRobot input = LINUX ? null : createInputRobot();
     private static final int MAX_PIXELS = 16 * 1024 * 1024;
-    @Override public void create() { Application.checkEventThread(); input.create(); }
-    @Override public void destroy() { Application.checkEventThread(); input.destroy(); }
-    @Override public void keyPress(KeyCode code) { input.keyPress(code); }
-    @Override public void keyRelease(KeyCode code) { input.keyRelease(code); }
-    @Override public void mousePress(MouseButton... buttons) { input.mousePress(buttons); }
-    @Override public void mouseRelease(MouseButton... buttons) { input.mouseRelease(buttons); }
-    @Override public void mouseWheel(int amount) { input.mouseWheel(amount); }
+    @Override public void create() {
+        Application.checkEventThread();
+        if (LINUX) GodotBridge.waylandRobotOpen(); else input.create();
+    }
+    @Override public void destroy() {
+        Application.checkEventThread();
+        if (!LINUX) input.destroy();
+    }
+    private static int linuxButton(MouseButton button) {
+        return switch (button) {
+            case PRIMARY -> 1;
+            case MIDDLE -> 2;
+            case SECONDARY -> 3;
+            case BACK -> 4;
+            case FORWARD -> 5;
+            default -> throw new IllegalArgumentException("Unsupported Robot button: " + button);
+        };
+    }
+    private void linuxButtons(MouseButton[] buttons, boolean pressed) {
+        int mask = 0;
+        for (var button : buttons) mask |= 1 << linuxButton(button);
+        for (int i = 1; i <= 5; i++) {
+            if ((mask & (1 << i)) != 0) GodotBridge.waylandRobotButton(i, pressed);
+        }
+    }
+    @Override public void keyPress(KeyCode code) {
+        Application.checkEventThread();
+        if (LINUX) GodotBridge.waylandRobotKey(GodotKeyMap.robotKey(code.getCode()), true);
+        else input.keyPress(code);
+    }
+    @Override public void keyRelease(KeyCode code) {
+        Application.checkEventThread();
+        if (LINUX) GodotBridge.waylandRobotKey(GodotKeyMap.robotKey(code.getCode()), false);
+        else input.keyRelease(code);
+    }
+    @Override public void mousePress(MouseButton... buttons) {
+        Application.checkEventThread();
+        if (LINUX) linuxButtons(buttons, true); else input.mousePress(buttons);
+    }
+    @Override public void mouseRelease(MouseButton... buttons) {
+        Application.checkEventThread();
+        if (LINUX) linuxButtons(buttons, false); else input.mouseRelease(buttons);
+    }
+    @Override public void mouseWheel(int amount) {
+        Application.checkEventThread();
+        if (LINUX) GodotBridge.waylandRobotWheel(amount);
+        else input.mouseWheel(amount);
+    }
 
     private static void finite(double... values) {
         for (double value : values) if (!Double.isFinite(value) || Math.abs(value) > Integer.MAX_VALUE / 4.0)

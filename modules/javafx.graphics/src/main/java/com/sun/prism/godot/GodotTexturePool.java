@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0 */
 package com.sun.prism.godot;
 
+import com.sun.javafx.PlatformUtil;
 import com.sun.javafx.tk.godot.GodotRenderCommands;
 import com.sun.prism.PixelFormat;
 import com.sun.prism.impl.BaseResourcePool;
@@ -15,12 +16,10 @@ public final class GodotTexturePool extends BaseResourcePool<GodotTexture.Data> 
     private final int[] generations = new int[4097];
 
     public GodotTexturePool(GodotRenderCommands commands, Runnable flushVertices) {
-        // A 2560x1600 RGBA8 intermediate is about 16 MiB. Effects can retain
-        // several at once. BaseResourcePool takes a reclamation target and
-        // a hard maximum (previously 64/128 MiB), not two allocation limits.
-        // The 1 GiB maximum matches MAX_BYTES in frame_protocol.h; that
-        // native ledger additionally accounts for retired texture versions.
-        super(512L * 1024 * 1024, 1024L * 1024 * 1024);
+        // On Linux, reclaim idle effect images earlier during VFX navigation.
+        // BaseResourcePool can grow the target when live textures need more room.
+        // The 1 GiB maximum matches the native frame protocol's texture budget.
+        super((PlatformUtil.isLinux() ? 256L : 512L) * 1024 * 1024, 1024L * 1024 * 1024);
         this.commands = java.util.Objects.requireNonNull(commands);
         this.flushVertices = java.util.Objects.requireNonNull(flushVertices);
         occupied.set(0);

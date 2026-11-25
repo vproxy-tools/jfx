@@ -13,7 +13,7 @@ interface GodotEngine {
 
     static GodotEngine forPlatform() {
         String arch = System.getProperty("os.arch");
-        if (PlatformUtil.isWindows() && ("amd64".equals(arch) || "x86_64".equals(arch))) {
+        if ((PlatformUtil.isWindows() || PlatformUtil.isLinux()) && ("amd64".equals(arch) || "x86_64".equals(arch))) {
             return new LibraryGodotEngine(false);
         }
         if (PlatformUtil.isMac() && "aarch64".equals(arch)) return new LibraryGodotEngine(true);

@@ -123,6 +123,7 @@ import com.sun.prism.RTTexture;
 import com.sun.prism.ResourceFactory;
 import com.sun.prism.ResourceFactoryListener;
 import com.sun.prism.Texture.WrapMode;
+import com.sun.prism.godot.GodotRTTexture;
 import com.sun.prism.impl.Disposer;
 import com.sun.prism.impl.PrismSettings;
 import com.sun.scenario.DelayedRunnable;
@@ -1474,6 +1475,10 @@ public final class QuantumToolkit extends Toolkit {
                 rt.dispose();
                 rt = null;
             }
+            if (rf != null) {
+                rf.removeFactoryListener(this);
+                rf = null;
+            }
         }
 
         void setImage(com.sun.prism.Image img) {
@@ -1504,12 +1509,6 @@ public final class QuantumToolkit extends Toolkit {
         @Override
         public void factoryReleased() {
             dispose();
-
-            // ResourceFactory is being disposed; clear reference to avoid leak
-            if (rf != null) {
-                rf.removeFactoryListener(this);
-                rf = null;
-            }
         }
     }
 
@@ -1611,21 +1610,29 @@ public final class QuantumToolkit extends Toolkit {
                 if (rt == null) {
                     return;
                 }
-                Graphics g = rt.createGraphics();
-                draw(g, x, y, w, h);
-                int[] pixels = rt.getPixels();
-                if (pixels != null) {
-                    pImage.setImage(com.sun.prism.Image.fromIntArgbPreData(pixels, w, h));
-                } else {
-                    IntBuffer ib = IntBuffer.allocate(w * h);
-                    if (rt.readPixels(ib, rt.getContentX(), rt.getContentY(), w, h)) {
-                        pImage.setImage(com.sun.prism.Image.fromIntArgbPreData(ib, w, h));
+                // A new Godot snapshot owns its readback pixels. Cache the GPU target
+                // only when the caller takes another snapshot into the same image.
+                boolean releaseTarget = rt instanceof GodotRTTexture && params.platformImage != pImage;
+                try {
+                    Graphics g = rt.createGraphics();
+                    draw(g, x, y, w, h);
+                    int[] pixels = rt.getPixels();
+                    if (pixels != null) {
+                        pImage.setImage(com.sun.prism.Image.fromIntArgbPreData(pixels, w, h));
                     } else {
+                        IntBuffer ib = IntBuffer.allocate(w * h);
+                        if (rt.readPixels(ib, rt.getContentX(), rt.getContentY(), w, h)) {
+                            pImage.setImage(com.sun.prism.Image.fromIntArgbPreData(ib, w, h));
+                        } else {
+                            releaseTarget = true;
+                        }
+                    }
+                } finally {
+                    rt.unlock();
+                    if (releaseTarget) {
                         pImage.dispose();
-                        pImage = null;
                     }
                 }
-                rt.unlock();
             }
 
 

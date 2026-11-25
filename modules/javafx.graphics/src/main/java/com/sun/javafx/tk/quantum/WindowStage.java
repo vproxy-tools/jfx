@@ -379,8 +379,14 @@ public class WindowStage extends GlassStage {
     }
 
     @Override public void setMaximumSize(int maxWidth, int maxHeight) {
-        maxWidth  = (int) Math.ceil(maxWidth  * getPlatformScaleX());
-        maxHeight = (int) Math.ceil(maxHeight * getPlatformScaleY());
+        // Glass uses Integer.MAX_VALUE for an unconstrained axis, including
+        // when the desktop scale is below one.
+        if (maxWidth != Integer.MAX_VALUE) {
+            maxWidth = (int) Math.ceil(maxWidth * getPlatformScaleX());
+        }
+        if (maxHeight != Integer.MAX_VALUE) {
+            maxHeight = (int) Math.ceil(maxHeight * getPlatformScaleY());
+        }
         platformWindow.setMaximumSize(maxWidth, maxHeight);
     }
 

@@ -193,6 +193,12 @@ public abstract class Toolkit {
     }
 
     public static Toolkit getToolkit() {
+        synchronized (Toolkit.class) {
+            // Shutdown callbacks still need the existing toolkit after the host starts stopping.
+            if (TOOLKIT != null) {
+                return TOOLKIT;
+            }
+        }
         com.sun.javafx.tk.godot.GodotBootstrap.ensureInitialized();
         return getInitializedToolkit();
     }

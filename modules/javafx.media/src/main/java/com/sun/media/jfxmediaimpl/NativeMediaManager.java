@@ -32,6 +32,8 @@ import com.sun.media.jfxmedia.events.MediaErrorListener;
 import com.sun.media.jfxmedia.locator.Locator;
 import com.sun.media.jfxmedia.logging.Logger;
 import com.sun.media.jfxmediaimpl.platform.PlatformManager;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
@@ -87,6 +89,22 @@ public class NativeMediaManager {
         return NativeMediaManagerInitializer.globalInstance;
     }
 
+    private static List<String> linuxCodecPlugins() throws IOException {
+        try (var index = NativeMediaManager.class.getResourceAsStream("/META-INF/godot-jfx/linux-media-codecs")) {
+            if (index != null) {
+                var plugins = new String(index.readAllBytes(), StandardCharsets.US_ASCII).lines().toList();
+                if (plugins.isEmpty() || plugins.stream().anyMatch(name -> !name.matches("avplugin(?:-ffmpeg)?(?:-[0-9]+)?"))) {
+                    throw new IOException("Invalid Linux Media codec inventory");
+                }
+                return plugins;
+            }
+        }
+        // The unpacked OpenJFX SDK probes all supported codec ABI variants.
+        return List.of("avplugin", "avplugin-54", "avplugin-56", "avplugin-57", "avplugin-ffmpeg-56",
+                "avplugin-ffmpeg-57", "avplugin-ffmpeg-58", "avplugin-ffmpeg-59", "avplugin-ffmpeg-60",
+                "avplugin-ffmpeg-61", "avplugin-ffmpeg-62");
+    }
+
     //**************************************************************************
     //***** Constructors
     //**************************************************************************
@@ -113,17 +131,7 @@ public class NativeMediaManager {
             }
             if (PlatformUtil.isLinux()) {
                 dependencies.add("fxplugins");
-                dependencies.add("avplugin");
-                dependencies.add("avplugin-54");
-                dependencies.add("avplugin-56");
-                dependencies.add("avplugin-57");
-                dependencies.add("avplugin-ffmpeg-56");
-                dependencies.add("avplugin-ffmpeg-57");
-                dependencies.add("avplugin-ffmpeg-58");
-                dependencies.add("avplugin-ffmpeg-59");
-                dependencies.add("avplugin-ffmpeg-60");
-                dependencies.add("avplugin-ffmpeg-61");
-                dependencies.add("avplugin-ffmpeg-62");
+                dependencies.addAll(linuxCodecPlugins());
             }
             if (PlatformUtil.isMac()) {
                 dependencies.add("fxplugins");

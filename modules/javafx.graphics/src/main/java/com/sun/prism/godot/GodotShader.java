@@ -20,7 +20,16 @@ public final class GodotShader implements Shader {
 
     public record Constant(boolean integer, int components, boolean array, int[] words) {
         public Constant { words = words.clone(); }
+        public boolean hasWords(int[] values) { return java.util.Arrays.equals(words, values); }
         @Override public int[] words() { return words.clone(); }
+        @Override public boolean equals(Object other) {
+            return this == other || other instanceof Constant constant && integer == constant.integer
+                    && components == constant.components && array == constant.array && hasWords(constant.words);
+        }
+        @Override public int hashCode() {
+            int shape = 31 * (31 * Boolean.hashCode(integer) + components) + Boolean.hashCode(array);
+            return 31 * shape + java.util.Arrays.hashCode(words);
+        }
     }
     public record Snapshot(String source, Map<String, Integer> samplerUnits, Map<String, Constant> constants) {
         public Snapshot { samplerUnits = Map.copyOf(samplerUnits); constants = Map.copyOf(constants); }
@@ -29,31 +38,53 @@ public final class GodotShader implements Shader {
     private final Thread owner = Thread.currentThread();
     private final String source;
     private final Map<String, Integer> samplers;
-    private final Map<String, Declaration> declarations = new LinkedHashMap<>();
+    private final Map<String, Declaration> declarations;
     private final Map<String, Constant> constants = new LinkedHashMap<>();
     private final Consumer<GodotShader> selection;
     private boolean disposed, enabled;
     private boolean videoYv12;
+    private boolean stockShader;
+
+    boolean isStockShader() { return stockShader; }
 
     public GodotShader(String source, Map<String, Integer> samplers, Map<String, Integer> parameters, Consumer<GodotShader> selection) {
-        this.source = Objects.requireNonNull(source);
-        this.samplers = Map.copyOf(samplers);
+        this(new Program(source, samplers, parameters), selection);
+    }
+
+    public GodotShader(Program program, Consumer<GodotShader> selection) {
+        source = program.source;
+        samplers = program.samplers;
+        declarations = program.declarations;
         this.selection = Objects.requireNonNull(selection);
-        var matcher = UNIFORM.matcher(source);
-        Map<String, Boolean> declaredSamplers = new LinkedHashMap<>();
-        while (matcher.find()) {
-            String type = matcher.group(1), name = matcher.group(2);
-            if (type.equals("sampler2D")) { declaredSamplers.put(name, true); continue; }
-            int components = type.equals("float") || type.equals("int") ? 1 : type.charAt(type.length() - 1) - '0';
-            int arraySize = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
-            if (arraySize < 0 || arraySize > 1024) throw new IllegalArgumentException("Shader uniform array is too large");
-            declarations.put(name, new Declaration(type.startsWith("i"), components, arraySize));
+    }
+
+    /** Immutable source and bindings. Each draw still owns its uniforms and shader selection. */
+    public static final class Program {
+        private final String source;
+        private final Map<String, Integer> samplers;
+        private final Map<String, Declaration> declarations;
+
+        public Program(String source, Map<String, Integer> samplers, Map<String, Integer> parameters) {
+            this.source = Objects.requireNonNull(source);
+            this.samplers = Map.copyOf(samplers);
+            var uniforms = new LinkedHashMap<String, Declaration>();
+            var matcher = UNIFORM.matcher(source);
+            Map<String, Boolean> declaredSamplers = new LinkedHashMap<>();
+            while (matcher.find()) {
+                String type = matcher.group(1), name = matcher.group(2);
+                if (type.equals("sampler2D")) { declaredSamplers.put(name, true); continue; }
+                int components = type.equals("float") || type.equals("int") ? 1 : type.charAt(type.length() - 1) - '0';
+                int arraySize = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
+                if (arraySize < 0 || arraySize > 1024) throw new IllegalArgumentException("Shader uniform array is too large");
+                uniforms.put(name, new Declaration(type.startsWith("i"), components, arraySize));
+            }
+            for (var entry : this.samplers.entrySet()) {
+                if (!declaredSamplers.containsKey(entry.getKey()) || entry.getValue() < 0 || entry.getValue() > 15) throw new IllegalArgumentException("Invalid shader sampler mapping: " + entry.getKey());
+            }
+            if (!this.samplers.keySet().equals(declaredSamplers.keySet())) throw new IllegalArgumentException("Shader sampler mapping is incomplete");
+            for (String name : parameters.keySet()) if (!uniforms.containsKey(name)) throw new IllegalArgumentException("Shader parameter is not declared: " + name);
+            declarations = Map.copyOf(uniforms);
         }
-        for (var entry : this.samplers.entrySet()) {
-            if (!declaredSamplers.containsKey(entry.getKey()) || entry.getValue() < 0 || entry.getValue() > 15) throw new IllegalArgumentException("Invalid shader sampler mapping: " + entry.getKey());
-        }
-        if (!this.samplers.keySet().equals(declaredSamplers.keySet())) throw new IllegalArgumentException("Shader sampler mapping is incomplete");
-        for (String name : parameters.keySet()) if (!declarations.containsKey(name)) throw new IllegalArgumentException("Shader parameter is not declared: " + name);
     }
 
     public static GodotShader loadPrism(String name, Map<String, Integer> samplers, Map<String, Integer> parameters, Consumer<GodotShader> selection) {
@@ -91,6 +122,7 @@ public final class GodotShader implements Shader {
                 }
             }
             var shader = new GodotShader(code, samplers, parameters, selection);
+            shader.stockShader = true;
             shader.videoYv12 = name.equals("Solid_TextureYV12") || name.equals("Solid_TextureYV12_AlphaTest");
             return shader;
         } catch (IOException failure) { throw new IllegalStateException("Cannot load generated Godot shader", failure); }

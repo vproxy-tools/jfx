@@ -1952,6 +1952,9 @@ public abstract class NGNode {
         // We know that we are going to render this node, so we call the
         // doRender method, which subclasses implement to do the actual
         // rendering work.
+        if (g instanceof com.sun.prism.godot.GodotGraphics godot && godot.isOutsideClip(transformedBounds)) {
+            return;
+        }
         doRender(g);
     }
 

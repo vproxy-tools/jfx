@@ -33,18 +33,24 @@ public final class GodotShaderEffect extends Effect {
     }
     public String getSource() { return source; }
     public void setFloat(String name, float... values) {
-        GodotNodeShader.validate(adapted,name,false,values.length);
         int[] words = new int[values.length];
         for (int i = 0; i < values.length; ++i) {
             if (!Float.isFinite(values[i])) throw new IllegalArgumentException("Non-finite shader parameter");
             words[i] = Float.floatToRawIntBits(values[i]);
         }
-        parameters.put(name,new GodotShader.Constant(false,values.length,false,words));
-        markDirty(EffectDirtyBits.EFFECT_DIRTY);
+        setParameter(name, false, words);
     }
     public void setInt(String name, int... values) {
-        GodotNodeShader.validate(adapted,name,true,values.length);
-        parameters.put(name,new GodotShader.Constant(true,values.length,false,values));
+        setParameter(name, true, values);
+    }
+    private void setParameter(String name, boolean integer, int[] words) {
+        var previous = parameters.get(name);
+        if (previous != null && previous.integer() == integer && previous.components() == words.length) {
+            if (previous.hasWords(words)) return;
+        } else {
+            GodotNodeShader.validate(adapted, name, integer, words.length);
+        }
+        parameters.put(name, new GodotShader.Constant(integer, words.length, false, words));
         markDirty(EffectDirtyBits.EFFECT_DIRTY);
     }
     public final void setInput(Effect value) { inputProperty().set(value); }

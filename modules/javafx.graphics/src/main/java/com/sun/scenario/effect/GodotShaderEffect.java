@@ -12,13 +12,13 @@ import com.sun.scenario.effect.impl.Renderer;
 import com.sun.scenario.effect.impl.prism.PrTexture;
 import com.sun.scenario.effect.impl.prism.ps.PPSDrawable;
 import com.sun.scenario.effect.impl.state.RenderState;
-import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /** GPU-only, per-node input pass. No global peer cache or shared mutable uniforms. */
 public final class GodotShaderEffect extends FilterEffect<RenderState> {
     private final String source;
+    private GodotShader.Program program;
     private Map<String,GodotShader.Constant> parameters = Map.of();
     public GodotShaderEffect(String source) { super(DefaultInput); this.source = source; }
     public void setInput(Effect input) { setInput(0,input); }
@@ -71,7 +71,13 @@ public final class GodotShaderEffect extends FilterEffect<RenderState> {
             var graphics = dst.createGraphics();
             var factory = (GodotResourceFactory)graphics.getResourceFactory();
             var texture = ((PrTexture<?>)src).getTextureObject();
-            var shader = factory.createShader("GodotNode",new ByteArrayInputStream(source.getBytes(StandardCharsets.UTF_8)),Map.of("godot_node_input",0),Map.of(),0,false,false);
+            if (program == null) {
+                if (source.getBytes(StandardCharsets.UTF_8).length > 262144) {
+                    throw new IllegalArgumentException("Godot shader source exceeds 256 KiB");
+                }
+                program = new GodotShader.Program(source, Map.of("godot_node_input", 0), Map.of());
+            }
+            var shader = factory.createShader(program);
             try {
                 shader.setConstant("godot_node_rect",(float)texture.getContentX()/texture.getPhysicalWidth(),(float)texture.getContentY()/texture.getPhysicalHeight(),(float)bounds.width/texture.getPhysicalWidth(),(float)bounds.height/texture.getPhysicalHeight());
                 shader.setConstant("godot_node_pixel_size",1f/bounds.width,1f/bounds.height);

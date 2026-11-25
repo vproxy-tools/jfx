@@ -19,6 +19,7 @@ public final class GodotRuntime {
      * directory or a PCK file. A null driver uses the javafx.godot.driver
      * property, then the platform default. Windows accepts d3d12 (default),
      * vulkan and opengl. macOS accepts metal (default) and opengl.
+     * Linux x64 accepts vulkan (default) and opengl.
      */
     public record Options(Path project, String driver, StartupWindow startupWindow) {}
 
@@ -48,6 +49,22 @@ public final class GodotRuntime {
             throw new IllegalArgumentException("Scene message topic length must be 1 to 128");
         }
         GodotBridge.hostCommand(28, value, 0, topic);
+    }
+
+    /**
+     * Requests a compositor-controlled move for a visible Godot Wayland Stage.
+     * Call on the FX thread from a primary mouse gesture on the window decoration.
+     * Returns true when the request is queued. The compositor decides whether to accept it.
+     */
+    public static boolean startWindowMove(javafx.stage.Stage stage) {
+        Objects.requireNonNull(stage);
+        if (!Platform.isFxApplicationThread()) {
+            throw new IllegalStateException("Window moves require the FX Application Thread");
+        }
+        if (!PRISM_GODOT_ENABLED || !stage.isShowing()) return false;
+        var peer = com.sun.javafx.stage.WindowHelper.getPeer(stage);
+        return peer instanceof com.sun.javafx.tk.quantum.WindowStage window
+                && com.sun.glass.ui.godot.GodotApplication.startWindowMove(window.getPlatformWindow());
     }
 
     private GodotRuntime() {}

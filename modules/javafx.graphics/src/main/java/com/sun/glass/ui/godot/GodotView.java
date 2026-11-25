@@ -206,7 +206,9 @@ final class GodotView extends View {
                 // for page scrolling; each axis has its own lossless field.
                 int lines = GodotInputPacket.scrollSetting(events[i + 10]);
                 int chars = GodotInputPacket.scrollSetting(events[i + 11]);
-                notifyScroll(x, y, sx, sy, events[i + 7], events[i + 8], modifiers, lines, chars, 3, 3, 40.0, 40.0);
+                int defaultUnits = com.sun.javafx.PlatformUtil.isLinux() ? 0 : 3;
+                notifyScroll(x, y, sx, sy, events[i + 7], events[i + 8], modifiers,
+                        lines, chars, defaultUnits, defaultUnits, 40.0, 40.0);
                 return;
             }
             if (kind == 17) {

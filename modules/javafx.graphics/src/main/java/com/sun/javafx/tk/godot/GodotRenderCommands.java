@@ -226,6 +226,18 @@ public final class GodotRenderCommands {
         invalidateActiveState();
     }
 
+    public void copyLCDBackground(int x, int y, int width, int height) {
+        checkOwner();
+        if (x < 0 || y < 0 || width <= 0 || height <= 0 ||
+                (long)x + width > 8192 || (long)y + height > 8192) {
+            throw new IllegalArgumentException("Invalid LCD background rectangle");
+        }
+        if (remainingBatchBytes() < 24 || count == 65536) submit();
+        reserve(24);
+        buffer.putInt(31).putInt(16).putInt(x).putInt(y).putInt(width).putInt(height);
+        ++count;
+    }
+
     public long endTargetPass() {
         appendEndTargetPass();
         return submit();
@@ -245,6 +257,7 @@ public final class GodotRenderCommands {
 
     public void shaderState(GodotShader.Snapshot state, long[] textureUnits) {
         checkOwner();
+        if (suppressible() && state.equals(activeState) && java.util.Arrays.equals(textureUnits, activeStateHandles)) return;
         textureUnits = textureUnits.clone();
         String source = state.source();
         byte[] sourceBytes = encodedShaderSource(source);
@@ -269,7 +282,6 @@ public final class GodotRenderCommands {
             if (!value.integer()) for (int word : words) if (!Float.isFinite(Float.intBitsToFloat(word))) throw new IllegalArgumentException("Non-finite shader constant");
             bytes = Math.addExact(bytes, 16 + name.length() + words.length * 4);
         }
-        if (suppressible() && state.equals(activeState) && java.util.Arrays.equals(textureUnits, activeStateHandles)) return;
         if (bytes + 8 <= MAX_BYTES - 24 && count > 0 && (count == 65536 || remainingBatchBytes() < bytes + 8)) submit();
         reserve(8 + bytes);
         buffer.putInt(11).putInt(bytes).putInt(source.length()).put(sourceBytes);
@@ -423,6 +435,7 @@ public final class GodotRenderCommands {
         if(stride==width)buffer.put(source.slice(start,(int)length));
         else for(int row=0;row<height;row++)buffer.put(source.slice(start+row*stride,width));
         count++;
+        invalidateSampler(handle);
     }
 
     public void updateFloatTextureRegion(long handle, int x, int y, int width, int height, byte[] pixels) {
@@ -442,6 +455,7 @@ public final class GodotRenderCommands {
         reserve(32 + pixels.length);
         buffer.putInt(floating ? 19 : 10).putInt(24 + pixels.length).putLong(handle).putInt(x).putInt(y).putInt(width).putInt(height).put(pixels);
         count++;
+        invalidateSampler(handle);
     }
 
     private void textureImage(int opcode, long handle, int width, int height, byte[] pixels) {
@@ -453,6 +467,18 @@ public final class GodotRenderCommands {
         reserve(24 + pixels.length);
         buffer.putInt(opcode).putInt(16 + pixels.length).putLong(handle).putInt(width).putInt(height).put(pixels);
         count++;
+        if (opcode == 6) invalidateSampler(handle);
+    }
+
+    private void invalidateSampler(long handle) {
+        if (activeStateHandles == null) return;
+        for (long bound : activeStateHandles) {
+            if (bound == handle) {
+                activeState = null;
+                activeStateHandles = null;
+                return;
+            }
+        }
     }
 
     public void disposeTexture(long handle) {

@@ -12,6 +12,7 @@ import com.sun.glass.ui.Window;
 import com.sun.glass.ui.Clipboard;
 import com.sun.glass.events.KeyEvent;
 import com.sun.glass.ui.headless.HeadlessApplication;
+import com.sun.javafx.PlatformUtil;
 import com.sun.javafx.tk.godot.GodotBridge;
 import com.sun.javafx.tk.godot.GodotHostStoppedException;
 
@@ -48,6 +49,12 @@ public final class GodotApplication extends HeadlessApplication {
     private volatile boolean receivingInput;
     private Drag drag;
     private GodotView externalTarget; // OLE drag-in target while no local drag is active.
+    public static boolean startWindowMove(Window window) {
+        return GetApplication() instanceof GodotApplication app && app.wayland
+                && window instanceof GodotWindow target && target.startWindowMove();
+    }
+
+    private final boolean wayland = PlatformUtil.isLinux();
     private final GodotBridge.DragTargetHandler dragTargetHandler = this::externalDragTarget;
 
     public GodotApplication() {
@@ -132,10 +139,12 @@ public final class GodotApplication extends HeadlessApplication {
         var customNames = new java.util.ArrayList<String>();
         var customData = new java.util.ArrayList<byte[]>();
         for (String mime : data.keySet()) {
-            if (mime.startsWith(GodotSystemClipboard.CUSTOM_PREFIX)) {
+            boolean legacy = mime.startsWith(GodotSystemClipboard.CUSTOM_PREFIX);
+            if (legacy || (wayland && mime.startsWith("application/x-") && !mime.startsWith("application/x-java-"))) {
                 try {
                     customNames.add(mime);
-                    customData.add(GodotSystemClipboard.customBytes(mime, data.get(mime)));
+                    customData.add(legacy ? GodotSystemClipboard.customBytes(mime, data.get(mime))
+                            : GodotDragClipboard.waylandBytes(mime, data.get(mime)));
                 } catch (IllegalArgumentException failure) {
                     finishDrag(session, Clipboard.ACTION_NONE);
                     throw failure;
@@ -152,8 +161,9 @@ public final class GodotApplication extends HeadlessApplication {
         String rtf = (String) data.get(Clipboard.RTF_TYPE);
         String[] files = null;
         if (data.get(Clipboard.FILE_LIST_TYPE) instanceof String[] paths) files = paths; // Quantum layer stores paths, not Files.
-        GodotBridge.dragStartExternal((String) data.get(Clipboard.TEXT_TYPE),
-                html == null ? null : GodotHtmlCodec.encode(terminated(html, java.nio.charset.StandardCharsets.UTF_8)),
+        byte[] htmlBytes = html == null ? null : terminated(html, java.nio.charset.StandardCharsets.UTF_8);
+        if (htmlBytes != null && !PlatformUtil.isLinux()) htmlBytes = GodotHtmlCodec.encode(htmlBytes);
+        GodotBridge.dragStartExternal((String) data.get(Clipboard.TEXT_TYPE), htmlBytes,
                 rtf == null ? null : terminated(rtf, java.nio.charset.StandardCharsets.US_ASCII),
                 (String) data.get(Clipboard.URI_TYPE), files,
                 customNames.isEmpty() ? null : customNames.toArray(String[]::new),
@@ -228,6 +238,12 @@ public final class GodotApplication extends HeadlessApplication {
         GodotView view = window != null && window.isVisible() && window.acceptsInput()
                 && window.getView() instanceof GodotView candidate ? candidate : null;
         if (view == null) return Clipboard.ACTION_NONE;
+        // Wayland sends surface-local device pixels. Glass also needs a screen
+        // point in the same coordinate system as the JavaFX window.
+        if (wayland) {
+            sx += window.getX();
+            sy += window.getY();
+        }
         int x = sx - window.getX(), y = sy - window.getY();
         int modifiers = ((keyState & 0x08) != 0 ? KeyEvent.MODIFIER_CONTROL : 0) | ((keyState & 0x04) != 0 ? KeyEvent.MODIFIER_SHIFT : 0);
         if (session != null) {
@@ -235,7 +251,9 @@ public final class GodotApplication extends HeadlessApplication {
             if (kind == 4) {
                 session.target = null; // notifyDragDrop closes the target assistant itself.
                 int performed = acceptedAction(view.dragDrop(x, y, sx, sy, action), session.actions);
-                finishDrag(session, performed);
+                // The Wayland source receives its own completion after this
+                // target returns and the host acknowledges the data offer.
+                if (!wayland) finishDrag(session, performed);
                 return performed;
             }
             if (view != session.target) {
@@ -269,8 +287,12 @@ public final class GodotApplication extends HeadlessApplication {
             String[] customNames, byte[][] customData, int actions) {
         var data = new java.util.HashMap<String,Object>();
         if (text != null) data.put(Clipboard.TEXT_TYPE, text);
-        if (html != null) data.put(Clipboard.HTML_TYPE,
-                new String(GodotHtmlCodec.decode(html), java.nio.charset.StandardCharsets.UTF_8));
+        if (html != null) {
+            String markup = PlatformUtil.isLinux()
+                    ? new String(html, 0, html.length - 1, java.nio.charset.StandardCharsets.UTF_8)
+                    : new String(GodotHtmlCodec.decode(html), java.nio.charset.StandardCharsets.UTF_8);
+            data.put(Clipboard.HTML_TYPE, markup);
+        }
         if (rtf != null && rtf.length > 0) data.put(Clipboard.RTF_TYPE, new String(rtf, 0, rtf.length - 1, java.nio.charset.StandardCharsets.US_ASCII));
         if (url != null) data.put(Clipboard.URI_TYPE, url);
         if (files != null) {
@@ -291,7 +313,7 @@ public final class GodotApplication extends HeadlessApplication {
         GodotDragClipboard clipboard = GodotDragClipboard.current();
         if (clipboard != null) clipboard.setExternalData(new java.util.HashMap<>(), Clipboard.ACTION_NONE);
     }
-    private boolean dispatchDrag(double[] event) {
+    private boolean dispatchDrag(GodotWindow source, double[] event) {
         Drag session = drag;
         if (session == null || session.finished) return false;
         int kind = (int)event[0];
@@ -308,15 +330,26 @@ public final class GodotApplication extends HeadlessApplication {
         if (kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 7 && kind != 8 && kind != 17) return false;
         if (kind == 4 || kind == 8 || kind == 17) return true;
         int sx = (int)event[4], sy = (int)event[5];
+        // Wayland identifies the receiving surface. Windows and macOS supply desktop coordinates.
+        int hitX = wayland ? source.getX() + (int)event[2] : sx;
+        int hitY = wayland ? source.getY() + (int)event[3] : sy;
         GodotWindow window = null;
-        for (int n = windows.size()-1; n >= 0; --n) {
-            GodotWindow candidate = windows.get(n);
-            if (candidate.isVisible() && !candidate.isClosed() && candidate.containsHost(sx-hostX(), sy-hostY())) {
-                if (candidate.acceptsInput()) window = candidate;
-                break; // A disabled/modal-blocked top window still occludes its owner.
+        if (wayland) {
+            // Window origins of independent toplevels are surface-local.
+            // The compositor identified the receiving surface in this event.
+            if (source.isVisible() && !source.isClosed() && source.acceptsInput() && source.containsScreen(hitX, hitY)) {
+                window = source;
+            }
+        } else {
+            for (int n = windows.size()-1; n >= 0; --n) {
+                GodotWindow candidate = windows.get(n);
+                if (candidate.isVisible() && !candidate.isClosed() && candidate.containsScreen(hitX, hitY)) {
+                    if (candidate.acceptsInput()) window = candidate;
+                    break; // A disabled/modal-blocked top window still occludes its owner.
+                }
             }
         }
-        if (kind == 1 && window == null) {
+        if (kind == 1 && window == null && !(wayland && source.containsScreen(hitX, hitY))) {
             // The pointer left every hosted window mid-drag: hand the gesture to
             // Windows OLE so external applications can receive the drop. Re-entry
             // arrives through the registered IDropTarget callbacks instead.
@@ -325,7 +358,7 @@ public final class GodotApplication extends HeadlessApplication {
         }
         GodotView target = window != null && window.getView() instanceof GodotView view ? view : null;
         int action = dragAction(session.actions, (int)event[6]);
-        int x = window == null ? 0 : sx-window.getX(), y = window == null ? 0 : sy-window.getY();
+        int x = window == null ? 0 : hitX-window.getX(), y = window == null ? 0 : hitY-window.getY();
         if (target != session.target) {
             GodotView previous = session.target;
             session.target = null;
@@ -382,8 +415,6 @@ public final class GodotApplication extends HeadlessApplication {
         if (window.getView() instanceof GodotView view) view.cancelInput();
     }
 
-    int hostX() { return primary == null || primary.isClosed() ? GodotBridge.hostInfo()[3] : primary.getX(); }
-    int hostY() { return primary == null || primary.isClosed() ? GodotBridge.hostInfo()[4] : primary.getY(); }
     @Override public int[] getPopupBounds() {
         Application.checkEventThread();
         return null; // Independent native popups use the normal monitor work area.
@@ -458,7 +489,11 @@ public final class GodotApplication extends HeadlessApplication {
         window.focusChanged(false);
         cancelInput(window);
         if (focused == window) {
-            window.focusChanged(false); focused = null;
+            focused = null;
+            if (window.getOwner() instanceof GodotWindow owner && owner.canFocus()) {
+                focus(owner);
+                return;
+            }
             for (int i = windows.size()-1; i >= 0; --i) {
                 GodotWindow candidate = windows.get(i);
                 if (candidate != window && candidate.canFocus()) { focus(candidate); break; }
@@ -478,8 +513,11 @@ public final class GodotApplication extends HeadlessApplication {
     private void deliver(GodotWindow window, double[] event) {
         if (window == null || !window.acceptsInput() || !(window.getView() instanceof GodotView view)) return;
         int kind = (int)event[0];
-        if (kind <= 4 || (kind >= 7 && kind <= 12) || kind == 17) {
-            event[2] -= window.getX()-hostX(); event[3] -= window.getY()-hostY();
+        if ((kind <= 4 || (kind >= 7 && kind <= 12) || kind == 17)
+                && (!wayland || (long)event[9] != (window == primary ? 0 : window.getNativeWindow()))) {
+            // Rebase the desktop point to the receiving Glass window. Wayland already
+            // supplies local coordinates when delivery stays on the original surface.
+            event[2] = event[4] - window.getX(); event[3] = event[5] - window.getY();
         }
         view.dispatchInput(event,0);
     }
@@ -494,10 +532,22 @@ public final class GodotApplication extends HeadlessApplication {
         for (GodotWindow window : java.util.List.copyOf(windows)) window.refreshScreen();
         updatePopupBounds();
         GodotWindow nativeFocused = null;
-        for (GodotWindow window : windows) if (window.hasNativeFocus() && window.canFocus()) nativeFocused = window;
-        boolean nativeFocus = nativeFocused != null;
+        boolean nativeFocus = false;
+        for (GodotWindow window : windows) {
+            if (!window.hasNativeFocus() || window.isClosed() || !window.isVisible()) continue;
+            if (window.canFocus()) {
+                nativeFocused = window;
+                nativeFocus = true;
+            } else if (wayland) {
+                // A modal can disable its owner before the compositor transfers
+                // keyboard focus. The application still owns the seat focus.
+                nativeFocus = true;
+            }
+        }
         if (hostFocused && !nativeFocus) {
-            if (drag != null) finishDrag(drag, Clipboard.ACTION_NONE);
+            // Weston transfers keyboard focus away during wl_data_device.start_drag.
+            // The data source still owns the gesture until finished or cancelled.
+            if (drag != null && !(wayland && drag.external)) finishDrag(drag, Clipboard.ACTION_NONE);
             if (grabbed != null) ungrab(grabbed);
             for (GodotWindow window : java.util.List.copyOf(windows)) {
                 window.focusChanged(false); cancelInput(window);
@@ -563,21 +613,21 @@ public final class GodotApplication extends HeadlessApplication {
             }
             double[] event = packet; // Already removed from the queue; preserve wheel metadata without another copy.
             try {
-                if (dispatchDrag(event)) continue;
+                if (dispatchDrag(source,event)) continue;
             } catch (Throwable failure) {
                 System.out.println("EXTERNAL_DISPATCH_FAIL t=" + (System.currentTimeMillis() % 100000));
                 failure.printStackTrace(System.out);
                 throw failure;
             }
             if (kind == 20) continue; // Stale OLE completion without an active drag.
-            // Native input is window-local. The existing capture/delivery code
-            // uses root-relative coordinates so dragging across windows keeps
-            // the captured View's local coordinates correct.
-            if (kind <= 4 || (kind >= 7 && kind <= 12) || kind == 17) {
-                event[2] = event[4]-hostX(); event[3] = event[5]-hostY();
-            }
             if (kind >= 13) { deliver(source,event); continue; }
             if (kind == 5 || kind == 6) {
+                // The input receiver can wake between Glass frame callbacks. Report
+                // confirmed Wayland focus before listeners handle the first key.
+                if (wayland && kind == 5 && event[GodotInputPacket.KEY_SOURCE_FOCUSED] == 1 && !source.isFocused() && source.canFocus()) {
+                    hostFocused = true;
+                    focus(source);
+                }
                 int key = (int)event[1];
                 if (key == 0) { deliver(source,event); continue; } // IME/Unicode commits have no physical key.
                 if (canceledKeys.contains(key)) {
@@ -701,6 +751,7 @@ public final class GodotApplication extends HeadlessApplication {
         // The bridge outlives Glass. Do not retain this application and its
         // window/input graph through a static bound-method callback.
         if (GodotBridge.dragTargetHandler == dragTargetHandler) GodotBridge.dragTargetHandler = null;
+        if (wayland) GodotBridge.waylandRobotClose();
         scheduler.close();
         loop.stop();
         setEventThread(null);

@@ -124,8 +124,8 @@ public class GlyphCache {
             dstw = ctx.getLCDBuffer().getPhysicalWidth();
             dsth = ctx.getLCDBuffer().getPhysicalHeight();
         } else {
-            dstw = 1;
-            dsth = 1;
+            dstw = 0;
+            dsth = 0;
         }
         Texture tex = getBackingStore();
         VertexBuffer vb = ctx.getVertexBuffer();
@@ -206,6 +206,12 @@ public class GlyphCache {
         if (isLCDCache) {
             dx1 = Math.round(dx1 * 3.0f) / 3.0f;
             dx2 = dx1 + gw / 3.0f;
+            if (dstw == 0) {
+                // Renderer-backed LCD reads the background at the fragment's screen
+                // position. Device positions in the unused UV set break mesh reuse.
+                vb.addQuad(dx1, dy1, dx2, dy2, tx1, ty1, tx2, ty2, 0, 0, 0, 0);
+                return;
+            }
             float t2x1 = dx1 / dstw;
             float t2x2 = dx2 / dstw;
             float t2y1 = dy1 / dsth;

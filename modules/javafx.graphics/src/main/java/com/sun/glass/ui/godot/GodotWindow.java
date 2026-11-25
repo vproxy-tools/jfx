@@ -16,6 +16,9 @@ final class GodotWindow extends Window {
     private int layerLevel = Level.NORMAL;
     private int pendingSequence;
     private long pendingNativeSequence;
+    private int inFlightMode = -1;
+    private int queuedMode = -1;
+    private long modeWaitStart;
     private boolean requestedVisible;
     private boolean nativeFocused;
     private boolean fullscreen;
@@ -27,6 +30,11 @@ final class GodotWindow extends Window {
 
     boolean acceptsInput() { return !isClosed() && isVisible() && inputEnabled; }
     boolean canFocus() { return acceptsInput() && focusable; }
+    boolean startWindowMove() {
+        if (!acceptsInput()) return false;
+        command(29, 0, 0, null);
+        return true;
+    }
     boolean isPrimary() { return primary; }
     boolean hasNativeFocus() { return nativeFocused; }
     long imeCommand(int operation, int a, int b) {
@@ -53,8 +61,8 @@ final class GodotWindow extends Window {
     void focusChanged(boolean value) { notifyFocus(value ? WindowEvent.FOCUS_GAINED : WindowEvent.FOCUS_LOST); }
     void focusDisabled() { notifyFocusDisabled(); }
     void focusUngrabbed() { notifyFocusUngrab(); }
-    boolean containsHost(double x, double y) {
-        double left = getX()-app().hostX(), top = getY()-app().hostY();
+    boolean containsScreen(double x, double y) {
+        double left = getX(), top = getY();
         return x >= left && y >= top && x < left+getWidth() && y < top+getHeight();
     }
     void composition(int z) {
@@ -76,6 +84,10 @@ final class GodotWindow extends Window {
         else {
             long nativeOwner = owner instanceof GodotWindow parent ? (parent.primary ? -1 : parent.getNativeWindow()) : 0;
             int flags = (isDecorated() ? 0 : 1) | ((styleMask & TRANSPARENT) != 0 ? 2 : 0);
+            // Popups use xdg_popup; owned modal Stages keep their toplevel and advertise a dialog role.
+            if (owner != null && (isPopup() || isModal()) && com.sun.javafx.PlatformUtil.isLinux()) {
+                flags |= isPopup() ? 8 : 16;
+            }
             pendingNativeSequence = GodotBridge.nativeWindowCommand(getNativeWindow(),nativeOwner,1,getX(),getY(),1,1,flags,false,"");
             // Creation must precede publication even when the renderer and main
             // thread interleave queue drains. This waits only on Godot, never FX.
@@ -87,9 +99,19 @@ final class GodotWindow extends Window {
         }
     }
     private void command(int op, int a, int b, String text) {
+        if (op == 6 && inFlightMode >= 0) {
+            // Wayland configures the new toplevel mode asynchronously. Queue a second
+            // request until the first transition is visible in the host snapshot.
+            queuedMode = a == inFlightMode ? -1 : a;
+            return;
+        }
         // The touch keyboard (26/27) is a global OS facility, not per-window state.
         if (primary || op == 10 || op == 26 || op == 27) pendingSequence = GodotBridge.hostCommand(op, a, b, text);
         else if (op != 8 && op != 14) pendingNativeSequence = GodotBridge.nativeWindowCommand(getNativeWindow(),0,4,a,b,0,0,op,false,text);
+        if (op == 6 && com.sun.javafx.PlatformUtil.isLinux()) {
+            inFlightMode = a;
+            modeWaitStart = 0;
+        }
         // Native content opacity belongs to its presentation surface. Scene
         // clearing supplies the background, not the root host's background.
     }
@@ -103,19 +125,39 @@ final class GodotWindow extends Window {
         if (info.length == 0 || info[10] < pendingNativeSequence) return;
         nativeFocused = info[8] != 0;
         if (getX() != info[3] || getY() != info[4]) notifyMove((int)info[3],(int)info[4]);
-        int type = info[9] == 1 ? WindowEvent.MINIMIZE : info[9] == 2 ? WindowEvent.MAXIMIZE :
-                isMinimized() || isMaximized() ? WindowEvent.RESTORE : WindowEvent.RESIZE;
-        if (getWidth() != info[5] || getHeight() != info[6] || (info[9] == 1) != isMinimized() || (info[9] == 2) != isMaximized()) {
-            notifyResize(type,(int)info[5],(int)info[6]);
-            if (getView() instanceof GodotView view) view.resized((int)info[5],(int)info[6]);
-        }
+        refreshSizeAndMode((int)info[5], (int)info[6], (int)info[9]);
     }
     void refresh(int[] info) {
         if (isClosed() || info[11] < pendingSequence) return;
         nativeFocused = info[9] != 0;
         if (getX() != info[3] || getY() != info[4]) notifyMove(info[3], info[4]);
-        boolean changed = getWidth() != info[0] || getHeight() != info[1];
-        int type = switch (info[10]) {
+        refreshSizeAndMode(info[0], info[1], info[10]);
+    }
+
+    private void refreshSizeAndMode(int width, int height, int nativeMode) {
+        int mode = nativeMode;
+        if (inFlightMode >= 0) {
+            // The host acknowledges the command before the compositor sends configure.
+            // Keep the current Glass mode across stale snapshots, then reconcile
+            // a request the compositor declined after a bounded wait.
+            long now = System.nanoTime();
+            if (modeWaitStart == 0) modeWaitStart = now;
+            if (mode == inFlightMode || now - modeWaitStart >= 1_000_000_000L) {
+                inFlightMode = -1;
+                int next = queuedMode;
+                queuedMode = -1;
+                if (next >= 0 && next != mode) command(6, next, 0, null);
+            }
+            if (inFlightMode >= 0) {
+                mode = isMinimized() ? 1 : isMaximized() ? 2 : 0;
+            }
+        }
+        // Glass tracks fullscreen separately from the maximized state.
+        if (com.sun.javafx.PlatformUtil.isLinux() && fullscreen && (mode == 3 || mode == 4)) {
+            mode = modeBeforeFullscreen;
+        }
+        boolean changed = getWidth() != width || getHeight() != height;
+        int type = switch (mode) {
             case 1 -> WindowEvent.MINIMIZE;
             case 2 -> WindowEvent.MAXIMIZE;
             // RESIZE updates dimensions only at the Quantum boundary. RESTORE
@@ -123,9 +165,9 @@ final class GodotWindow extends Window {
             // the native host (for example the OS taskbar) restores the window.
             default -> isMinimized() || isMaximized() ? WindowEvent.RESTORE : WindowEvent.RESIZE;
         };
-        if (changed || (info[10] == 1) != isMinimized() || (info[10] == 2) != isMaximized()) {
-            notifyResize(type, info[0], info[1]);
-            if (getView() instanceof GodotView view) view.resized(info[0], info[1]);
+        if (changed || (mode == 1) != isMinimized() || (mode == 2) != isMaximized()) {
+            notifyResize(type, width, height);
+            if (getView() instanceof GodotView view) view.resized(width, height);
         }
     }
     void refreshScreen() {
@@ -199,6 +241,7 @@ final class GodotWindow extends Window {
         app().restack();
     }
     @Override protected boolean _setVisible(long ptr, boolean value) {
+        if (!value && com.sun.javafx.PlatformUtil.isLinux()) GodotBridge.flushLinuxClipboard();
         lifecycle.setVisible(value);
         requestedVisible = value;
         if (!primary) configureNative();
